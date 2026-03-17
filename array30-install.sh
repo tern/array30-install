@@ -223,6 +223,224 @@ setup_im_env() {
     ok "已寫入 IM 環境變數"
 }
 
+# ── 編譯 ──────────────────────────────────────────────────────────────────
+
+install_build_deps() {
+    step "安裝編譯依賴"
+
+    local deps=(
+        build-essential cmake extra-cmake-modules git
+        fcitx5 libfcitx5core-dev libfcitx5config-dev libfcitx5utils-dev fcitx5-modules-dev
+        libsqlite3-dev libfmt-dev gettext pkg-config zstd
+        sqlite3
+    )
+
+    # 檢查哪些套件需要安裝
+    local to_install=()
+    for pkg in "${deps[@]}"; do
+        if ! dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
+            to_install+=("$pkg")
+        fi
+    done
+
+    if [[ ${#to_install[@]} -eq 0 ]]; then
+        ok "所有編譯依賴已安裝"
+        return
+    fi
+
+    info "需要安裝 ${#to_install[@]} 個套件: ${to_install[*]}"
+    confirm "即將安裝以上套件，繼續？" || {
+        err "編譯依賴是必要的，無法跳過"
+        exit 1
+    }
+
+    need_sudo
+    sudo apt-get update -qq 2>&1 | tail -1
+    sudo apt-get install -y "${to_install[@]}" 2>&1 | tail -5
+    ok "編譯依賴已安裝"
+}
+
+fetch_source() {
+    local build_dir="$1"
+    step "取得 fcitx5-array 原始碼"
+
+    local src_url=""
+    local src_version=""
+
+    # 嘗試從 AUR PKGBUILD 取得上游 source URL
+    info "從 AUR 取得 PKGBUILD..."
+    local aur_dir
+    aur_dir=$(mktemp -d)
+
+    if git clone --depth 1 "$FCITX5_ARRAY_AUR" "$aur_dir/fcitx5-array" 2>/dev/null; then
+        local pkgbuild="$aur_dir/fcitx5-array/PKGBUILD"
+        if [[ -f "$pkgbuild" ]]; then
+            # 解析 pkgver
+            src_version=$(grep -oP '^pkgver=\K.*' "$pkgbuild" | tr -d '"' || true)
+            # 解析 source=() 中的 URL — 替換 $pkgver
+            src_url=$(grep -oP "source=\(['\"]?\K[^'\"]+" "$pkgbuild" | head -1 || true)
+            if [[ -n "$src_url" ]] && [[ -n "$src_version" ]]; then
+                src_url=$(echo "$src_url" | sed "s/\\\$pkgver/$src_version/g" | sed "s/\${pkgver}/$src_version/g")
+                info "PKGBUILD 解析成功: v$src_version"
+            else
+                src_url=""
+            fi
+        fi
+    fi
+
+    rm -rf "$aur_dir"
+
+    # Fallback: 直接從 GitHub repo clone
+    if [[ -z "$src_url" ]]; then
+        warn "PKGBUILD 解析失敗，使用 fallback: $FCITX5_ARRAY_GITHUB"
+        info "從 GitHub clone fcitx5-array..."
+        if git clone --depth 1 "$FCITX5_ARRAY_GITHUB" "$build_dir/fcitx5-array-src"; then
+            src_version=$(cd "$build_dir/fcitx5-array-src" && git describe --tags 2>/dev/null || git rev-parse --short HEAD)
+            ok "原始碼取得成功 (git: $src_version)"
+            echo "$src_version" > "$build_dir/source-version.txt"
+            return 0
+        else
+            err "無法從 GitHub 取得原始碼"
+            exit 1
+        fi
+    fi
+
+    # 從解析出的 URL 下載 tarball
+    info "下載原始碼: $src_url"
+    local tarball="$build_dir/source.tar.gz"
+    if ! curl -fL "$src_url" -o "$tarball" 2>/dev/null; then
+        # 重試一次
+        warn "下載失敗，重試..."
+        if ! curl -fL "$src_url" -o "$tarball" 2>/dev/null; then
+            warn "tarball 下載失敗，嘗試 git clone fallback..."
+            if git clone --depth 1 "$FCITX5_ARRAY_GITHUB" "$build_dir/fcitx5-array-src"; then
+                src_version=$(cd "$build_dir/fcitx5-array-src" && git describe --tags 2>/dev/null || git rev-parse --short HEAD)
+                ok "原始碼取得成功 (git fallback: $src_version)"
+                echo "$src_version" > "$build_dir/source-version.txt"
+                return 0
+            fi
+            err "無法取得原始碼"
+            exit 1
+        fi
+    fi
+
+    # 解壓 tarball
+    mkdir -p "$build_dir/fcitx5-array-src"
+    tar -xf "$tarball" -C "$build_dir/fcitx5-array-src" --strip-components=1
+    echo "$src_version" > "$build_dir/source-version.txt"
+    ok "原始碼取得成功: v$src_version"
+}
+
+compile_array() {
+    local build_dir="$1"
+    local src_dir="$build_dir/fcitx5-array-src"
+    step "編譯 fcitx5-array"
+
+    if [[ ! -d "$src_dir" ]]; then
+        err "找不到原始碼目錄: $src_dir"
+        exit 1
+    fi
+
+    info "執行 cmake..."
+    if ! cmake -B "$build_dir/build" -S "$src_dir" \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_BUILD_TYPE=Release 2>&1 | tee "$build_dir/cmake.log" | tail -5; then
+        err "cmake 設定失敗，log 已儲存到 ~/array30-build-error.log"
+        cp "$build_dir/cmake.log" ~/array30-build-error.log
+        exit 1
+    fi
+
+    info "編譯中..."
+    if ! cmake --build "$build_dir/build" -- -j"$(nproc)" 2>&1 | tee "$build_dir/build.log" | tail -5; then
+        err "編譯失敗，log 已儲存到 ~/array30-build-error.log"
+        cat "$build_dir/cmake.log" "$build_dir/build.log" 2>/dev/null > ~/array30-build-error.log
+        exit 1
+    fi
+
+    ok "編譯成功"
+}
+
+stage_and_install() {
+    local build_dir="$1"
+    step "安裝到系統"
+
+    # Stage to temp directory
+    local staging="$build_dir/staging"
+    mkdir -p "$staging"
+    DESTDIR="$staging" cmake --install "$build_dir/build" 2>&1 | tail -3
+    ok "staging 完成"
+
+    # 找出 staging 內的檔案
+    local staged_so_dir="$staging/usr/lib/fcitx5"
+    # 若 cmake install 使用了不同路徑，嘗試找
+    if [[ ! -d "$staged_so_dir" ]]; then
+        staged_so_dir=$(find "$staging" -name "array.so" -printf "%h" -quit 2>/dev/null || true)
+    fi
+
+    if [[ -z "$staged_so_dir" ]] || [[ ! -f "$staged_so_dir/array.so" ]]; then
+        err "找不到編譯產出的 array.so"
+        err "staging 目錄內容:"
+        find "$staging" -type f 2>/dev/null | head -20
+        exit 1
+    fi
+
+    # 建立目標目錄
+    need_sudo
+    sudo mkdir -p "$(dirname "$ARRAY_SO")"
+    sudo mkdir -p "$(dirname "$ARRAY_DB")"
+    sudo mkdir -p /usr/share/fcitx5/addon
+    sudo mkdir -p /usr/share/fcitx5/inputmethod
+
+    # 複製 .so 檔
+    sudo cp "$staged_so_dir/array.so" "$ARRAY_SO"
+    ok "已安裝 array.so"
+
+    if [[ -f "$staged_so_dir/libassociation.so" ]]; then
+        sudo cp "$staged_so_dir/libassociation.so" "$ASSOC_SO"
+        ok "已安裝 libassociation.so"
+    fi
+
+    # 建立 libarray.so symlink
+    local so_dir
+    so_dir=$(dirname "$ARRAY_SO")
+    sudo ln -sf "$ARRAY_SO" "$so_dir/libarray.so"
+    ok "已建立 libarray.so → array.so symlink"
+
+    # 複製 array.db
+    local staged_db
+    staged_db=$(find "$staging" -name "array.db" -type f -print -quit 2>/dev/null || true)
+    if [[ -n "$staged_db" ]]; then
+        sudo cp "$staged_db" "$ARRAY_DB"
+        ok "已安裝 array.db"
+    else
+        warn "staging 中找不到 array.db，可能需要 update-table 來建立"
+    fi
+
+    # 複製 .conf 檔
+    local staged_addon
+    staged_addon=$(find "$staging" -path "*/addon/array.conf" -type f -print -quit 2>/dev/null || true)
+    if [[ -n "$staged_addon" ]]; then
+        sudo cp "$staged_addon" /usr/share/fcitx5/addon/array.conf
+        ok "已安裝 addon/array.conf"
+    fi
+
+    local staged_im
+    staged_im=$(find "$staging" -path "*/inputmethod/array.conf" -type f -print -quit 2>/dev/null || true)
+    if [[ -n "$staged_im" ]]; then
+        sudo cp "$staged_im" /usr/share/fcitx5/inputmethod/array.conf
+        ok "已安裝 inputmethod/array.conf"
+    fi
+
+    # 記錄版本
+    mkdir -p "$BACKUP_DIR"
+    if [[ -f "$build_dir/source-version.txt" ]]; then
+        cp "$build_dir/source-version.txt" "$VERSION_FILE"
+        ok "已記錄安裝版本: $(cat "$VERSION_FILE")"
+    fi
+
+    ok "fcitx5-array 檔案已安裝到系統"
+}
+
 # ── Stub functions ────────────────────────────────────────────────────────
 
 do_install()      { err "install: 尚未實作"; exit 1; }
