@@ -403,7 +403,7 @@ stage_and_install() {
     # 建立 libarray.so symlink
     local so_dir
     so_dir=$(dirname "$ARRAY_SO")
-    sudo ln -sf "$ARRAY_SO" "$so_dir/libarray.so"
+    sudo ln -sf "array.so" "$so_dir/libarray.so"
     ok "已建立 libarray.so → array.so symlink"
 
     # 複製 array.db
@@ -522,17 +522,25 @@ verify_array_loaded() {
     disown
     sleep 3
 
+    local result=0
     if grep -q "Loaded addon array" /tmp/fcitx5-array-verify.log 2>/dev/null; then
         ok "array addon 載入成功"
-        return 0
     else
         local error
         error=$(grep -i "Failed.*array\|Could not load addon array" /tmp/fcitx5-array-verify.log 2>/dev/null || true)
         if [[ -n "$error" ]]; then
             err "$error"
         fi
-        return 1
+        result=1
     fi
+
+    # 重啟 fcitx5 以正常模式運行（不帶 debug logging）
+    pkill fcitx5 2>/dev/null || true
+    sleep 1
+    fcitx5 -rd &>/dev/null &
+    disown
+
+    return $result
 }
 
 # ── Stub functions ────────────────────────────────────────────────────────
@@ -565,9 +573,9 @@ do_install() {
     install_build_deps
 
     # 建立暫存目錄
-    local build_dir
-    build_dir=$(mktemp -d /tmp/array30-build-XXXX)
-    trap "rm -rf $build_dir" EXIT
+    BUILD_DIR=$(mktemp -d /tmp/array30-build-XXXX)
+    trap 'rm -rf "$BUILD_DIR"' EXIT
+    local build_dir="$BUILD_DIR"
 
     # 取得原始碼 + 編譯 + 安裝
     fetch_source "$build_dir"
@@ -608,6 +616,11 @@ do_update_table() {
         exit 1
     fi
 
+    if ! command -v sqlite3 &>/dev/null; then
+        err "需要 sqlite3 CLI 工具（sudo apt install sqlite3）"
+        exit 1
+    fi
+
     # 顯示目前狀態
     local current_count
     current_count=$(sqlite3 "$ARRAY_DB" "SELECT count(*) FROM main;" 2>/dev/null || echo 0)
@@ -621,7 +634,8 @@ do_update_table() {
     # 下載最新 CIN
     local tmpdir
     tmpdir=$(mktemp -d)
-    trap "rm -rf $tmpdir" RETURN
+    # shellcheck disable=SC2064
+    trap "rm -rf '$tmpdir'" RETURN
 
     info "下載最新字根表..."
     if ! curl -fL "$ARRAY30_CIN_RAW/array30-OpenVanilla-big.cin" -o "$tmpdir/array30.cin" 2>/dev/null; then
