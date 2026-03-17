@@ -441,14 +441,240 @@ stage_and_install() {
     ok "fcitx5-array 檔案已安裝到系統"
 }
 
+# ── fcitx5 Profile 管理 ──────────────────────────────────────────────────
+
+setup_profile() {
+    step "設定 fcitx5 Profile"
+
+    if [[ ! -f "$FCITX5_PROFILE" ]]; then
+        info "建立 fcitx5 profile（含 keyboard-us + array）"
+        mkdir -p "$(dirname "$FCITX5_PROFILE")"
+        cat > "$FCITX5_PROFILE" << 'PROFEOF'
+[Groups/0]
+# Group Name
+Name=預設
+# Layout
+Default Layout=us
+# Default Input Method
+DefaultIM=keyboard-us
+
+[Groups/0/Items/0]
+# Name
+Name=keyboard-us
+# Layout
+Layout=
+
+[Groups/0/Items/1]
+# Name
+Name=array
+# Layout
+Layout=
+
+[GroupOrder]
+0=預設
+PROFEOF
+        ok "已建立 profile 並加入 array"
+        return
+    fi
+
+    # 備份 profile
+    cp "$FCITX5_PROFILE" "$FCITX5_PROFILE.bak.$(date +%s)"
+
+    # 檢查是否已有 array (native)
+    if grep -q "Name=array$" "$FCITX5_PROFILE"; then
+        ok "原生 array 已在 profile 中"
+        return
+    fi
+
+    # 在 profile 中加入 array
+    local max_idx
+    max_idx=$(grep -oP 'Groups/0/Items/\K[0-9]+' "$FCITX5_PROFILE" | sort -n | tail -1)
+
+    if [[ -n "$max_idx" ]]; then
+        local new_idx=$((max_idx + 1))
+        sed -i "/^\[GroupOrder\]/i\\
+[Groups/0/Items/$new_idx]\\
+# Name\\
+Name=array\\
+# Layout\\
+Layout=\\
+" "$FCITX5_PROFILE"
+        ok "已將原生 array 加入 profile (Items/$new_idx)"
+    else
+        warn "無法自動修改 profile，請用 fcitx5-configtool 手動新增"
+    fi
+}
+
+restart_fcitx5() {
+    step "重啟 fcitx5"
+    pkill fcitx5 2>/dev/null || true
+    sleep 1
+    fcitx5 -rd &>/dev/null &
+    disown
+    sleep 2
+    ok "fcitx5 已重啟"
+}
+
+verify_array_loaded() {
+    pkill fcitx5 2>/dev/null || true
+    sleep 1
+    FCITX_LOG=default=5 fcitx5 -rd &>/tmp/fcitx5-array-verify.log &
+    disown
+    sleep 3
+
+    if grep -q "Loaded addon array" /tmp/fcitx5-array-verify.log 2>/dev/null; then
+        ok "array addon 載入成功"
+        return 0
+    else
+        local error
+        error=$(grep -i "Failed.*array\|Could not load addon array" /tmp/fcitx5-array-verify.log 2>/dev/null || true)
+        if [[ -n "$error" ]]; then
+            err "$error"
+        fi
+        return 1
+    fi
+}
+
 # ── Stub functions ────────────────────────────────────────────────────────
 
-do_install()      { err "install: 尚未實作"; exit 1; }
+do_install() {
+    step "行列30 (fcitx5-array) 安裝程序"
+    echo ""
+    info "此腳本將:"
+    info "  1. 檢查環境並設定繁體中文語系"
+    info "  2. 安裝 fcitx5 輸入法框架（如需要）"
+    info "  3. 原生編譯 fcitx5-array"
+    info "  4. 安裝並設定行列30輸入法"
+    echo ""
+
+    # 前置檢查
+    check_ubuntu
+    check_network
+    check_disk_space
+
+    # 語系與 fcitx5
+    setup_locale
+    setup_fcitx5
+
+    # 備份現有安裝
+    if [[ -f "$ARRAY_SO" ]] || [[ -f "$ARRAY_DB" ]]; then
+        do_backup
+    fi
+
+    # 編譯依賴
+    install_build_deps
+
+    # 建立暫存目錄
+    local build_dir
+    build_dir=$(mktemp -d /tmp/array30-build-XXXX)
+    trap "rm -rf $build_dir" EXIT
+
+    # 取得原始碼 + 編譯 + 安裝
+    fetch_source "$build_dir"
+    compile_array "$build_dir"
+    stage_and_install "$build_dir"
+
+    # 設定 profile + 重啟
+    setup_profile
+    restart_fcitx5
+
+    # 驗證
+    step "驗證安裝結果"
+    sleep 2
+    if verify_array_loaded; then
+        echo ""
+        ok "================================================"
+        ok "  行列30 (fcitx5-array) 安裝成功！"
+        ok "  按 Ctrl+Space 切換輸入法"
+        ok "  支援 W+數字 符號輸入、簡碼、萬用字元"
+        ok "================================================"
+    else
+        err "安裝完成但 array addon 載入失敗"
+        err "請執行 ./array30-install.sh diagnose 檢查問題"
+        exit 1
+    fi
+}
+
 do_update_table() { err "update-table: 尚未實作"; exit 1; }
 do_diagnose()     { err "diagnose: 尚未實作"; exit 1; }
 do_uninstall()    { err "uninstall: 尚未實作"; exit 1; }
-do_backup()       { err "backup: 尚未實作"; exit 1; }
-do_restore()      { err "restore: 尚未實作"; exit 1; }
+
+do_backup() {
+    step "備份目前的 fcitx5-array 檔案"
+    mkdir -p "$BACKUP_DIR"
+    local ts
+    ts=$(date +%Y%m%d-%H%M%S)
+    local bak="$BACKUP_DIR/$ts"
+    mkdir -p "$bak"
+
+    [[ -f "$ARRAY_SO" ]]    && cp "$ARRAY_SO" "$bak/array.so"    && ok "已備份 array.so"
+    [[ -f "$ASSOC_SO" ]]    && cp "$ASSOC_SO" "$bak/libassociation.so" && ok "已備份 libassociation.so"
+    [[ -f "$ARRAY_DB" ]]    && cp "$ARRAY_DB" "$bak/array.db"    && ok "已備份 array.db"
+    [[ -f /usr/share/fcitx5/addon/array.conf ]]      && cp /usr/share/fcitx5/addon/array.conf "$bak/addon-array.conf"
+    [[ -f /usr/share/fcitx5/inputmethod/array.conf ]] && cp /usr/share/fcitx5/inputmethod/array.conf "$bak/inputmethod-array.conf"
+
+    # metadata
+    {
+        echo "timestamp=$ts"
+        echo "fcitx5_version=$(fcitx5 --version 2>/dev/null | head -1 || echo unknown)"
+        echo "source_version=$(cat "$VERSION_FILE" 2>/dev/null || echo unknown)"
+        if [[ -f "$ARRAY_DB" ]] && command -v sqlite3 &>/dev/null; then
+            echo "db_main_count=$(sqlite3 "$ARRAY_DB" "SELECT count(*) FROM main;" 2>/dev/null || echo 0)"
+            echo "db_simple_count=$(sqlite3 "$ARRAY_DB" "SELECT count(*) FROM simple;" 2>/dev/null || echo 0)"
+            echo "db_phrase_count=$(sqlite3 "$ARRAY_DB" "SELECT count(*) FROM phrase;" 2>/dev/null || echo 0)"
+        fi
+    } > "$bak/metadata.txt"
+
+    ok "備份完成: $bak"
+}
+
+do_restore() {
+    step "從備份還原"
+
+    if [[ ! -d "$BACKUP_DIR" ]]; then
+        err "找不到備份目錄 $BACKUP_DIR"
+        exit 1
+    fi
+
+    # 列出可用備份
+    echo "可用的備份:"
+    local backups=()
+    while IFS= read -r -d '' dir; do
+        local name
+        name=$(basename "$dir")
+        if [[ -f "$dir/array.db" ]] || [[ -f "$dir/array.so" ]]; then
+            backups+=("$name")
+            local meta
+            meta=$(cat "$dir/metadata.txt" 2>/dev/null || echo "metadata 遺失")
+            echo "  $((${#backups[@]}))) $name"
+            echo "$meta" | head -3 | sed 's/^/       /'
+        fi
+    done < <(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
+
+    if [[ ${#backups[@]} -eq 0 ]]; then
+        err "沒有找到可用的備份"
+        exit 1
+    fi
+
+    read -rp "選擇要還原的備份編號 [1-${#backups[@]}]: " choice
+    if [[ -z "$choice" ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#backups[@]} ]]; then
+        err "無效的選擇"
+        exit 1
+    fi
+
+    local selected="${backups[$((choice-1))]}"
+    local src="$BACKUP_DIR/$selected"
+
+    need_sudo
+    [[ -f "$src/array.so" ]]    && sudo cp "$src/array.so" "$ARRAY_SO"    && ok "已還原 array.so"
+    [[ -f "$src/libassociation.so" ]] && sudo cp "$src/libassociation.so" "$ASSOC_SO" && ok "已還原 libassociation.so"
+    [[ -f "$src/array.db" ]]    && sudo cp "$src/array.db" "$ARRAY_DB"    && ok "已還原 array.db"
+    [[ -f "$src/addon-array.conf" ]]      && sudo cp "$src/addon-array.conf" /usr/share/fcitx5/addon/array.conf
+    [[ -f "$src/inputmethod-array.conf" ]] && sudo cp "$src/inputmethod-array.conf" /usr/share/fcitx5/inputmethod/array.conf
+
+    restart_fcitx5
+    ok "還原完成"
+}
 
 # ── 主程式 ────────────────────────────────────────────────────────────────
 
