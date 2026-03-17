@@ -595,9 +595,445 @@ do_install() {
     fi
 }
 
-do_update_table() { err "update-table: 尚未實作"; exit 1; }
-do_diagnose()     { err "diagnose: 尚未實作"; exit 1; }
-do_uninstall()    { err "uninstall: 尚未實作"; exit 1; }
+do_update_table() {
+    step "線上更新行列30字根表"
+
+    if [[ ! -f "$ARRAY_DB" ]]; then
+        err "找不到 array.db — 請先執行 install"
+        exit 1
+    fi
+
+    if ! command -v python3 &>/dev/null; then
+        err "需要 python3 來轉換字根表"
+        exit 1
+    fi
+
+    # 顯示目前狀態
+    local current_count
+    current_count=$(sqlite3 "$ARRAY_DB" "SELECT count(*) FROM main;" 2>/dev/null || echo 0)
+    info "目前 array.db 主表筆數: $current_count"
+
+    echo ""
+    info "字根表來源: gontera/array30 (官方行列30字根表)"
+    info "引擎來源:   ray2501/fcitx5-array"
+    echo ""
+
+    # 下載最新 CIN
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap "rm -rf $tmpdir" RETURN
+
+    info "下載最新字根表..."
+    if ! curl -fL "$ARRAY30_CIN_RAW/array30-OpenVanilla-big.cin" -o "$tmpdir/array30.cin" 2>/dev/null; then
+        err "下載字根表失敗"
+        exit 1
+    fi
+    ok "已下載 array30-OpenVanilla-big.cin"
+
+    info "下載簡碼表..."
+    if ! curl -fL "$ARRAY30_CIN_RAW/array30_simplecode.cin" -o "$tmpdir/simplecode.cin" 2>/dev/null; then
+        warn "下載簡碼表失敗，跳過簡碼更新"
+    else
+        ok "已下載 array30_simplecode.cin"
+    fi
+
+    info "下載詞組表..."
+    if ! curl -fL "${FCITX5_ARRAY_GITHUB}/raw/master/data/array30-phrase-20210725.txt" -o "$tmpdir/phrase.txt" 2>/dev/null; then
+        warn "下載詞組表失敗，跳過詞組更新"
+    else
+        ok "已下載 array30-phrase.txt"
+    fi
+
+    # 備份
+    do_backup
+
+    # 產生 Python 腳本
+    cat > "$tmpdir/update_db.py" << 'PYEOF'
+#!/usr/bin/env python3
+"""Update array.db from CIN table files."""
+import sqlite3
+import sys
+import os
+
+REGION_MAP = {
+    "CJK Unified Ideographs Base": 1,
+    "Special Codes": 2,
+    "Compatible Input Codes": 3,
+    "CJK Unified Ideographs Extension A": 4,
+    "CJK Unified Ideographs Extension B": 5,
+    "CJK Unified Ideographs Extension C": 6,
+    "CJK Unified Ideographs Extension D": 7,
+    "CJK Unified Ideographs Extension E": 8,
+    "CJK Unified Ideographs Extension F": 9,
+    "CJK Unified Ideographs Extension G": 10,
+    "CJK Symbols & Punctuation (w+0~9)": 11,
+}
+
+def ensure_schema(cur):
+    cur.execute("""CREATE TABLE IF NOT EXISTS main (
+        keys TEXT NOT NULL, ch TEXT NOT NULL, cat INTEGER NOT NULL, cnt INTEGER DEFAULT 0
+    )""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS simple (
+        keys TEXT NOT NULL, ch TEXT NOT NULL
+    )""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS phrase (
+        keys TEXT NOT NULL, ph TEXT NOT NULL
+    )""")
+
+def update_main_table(db_path, cin_file):
+    con = sqlite3.connect(db_path)
+    cur = con.cursor()
+    ensure_schema(cur)
+    cur.execute("DELETE FROM main;")
+    region_stack = []
+    count = 0
+    with open(cin_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            matched = False
+            for name, code in REGION_MAP.items():
+                if line == f"# Begin of {name}":
+                    region_stack.append(code)
+                    matched = True
+                    break
+                elif line == f"# End of {name}":
+                    if region_stack:
+                        region_stack.pop()
+                    matched = True
+                    break
+            if matched or not region_stack:
+                continue
+            if line.startswith("#") or line.startswith("%"):
+                continue
+            parts = line.split()
+            if len(parts) >= 2:
+                keys, ch = parts[0], parts[1]
+                cat = region_stack[-1]
+                cur.execute(
+                    "INSERT INTO main (keys, ch, cat, cnt) VALUES (?, ?, ?, 0)",
+                    (keys, ch, cat),
+                )
+                count += 1
+    con.commit()
+    con.close()
+    return count
+
+def update_simple_table(db_path, cin_file):
+    con = sqlite3.connect(db_path)
+    cur = con.cursor()
+    ensure_schema(cur)
+    cur.execute("DELETE FROM simple;")
+    count = 0
+    with open(cin_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("%"):
+                continue
+            parts = line.split("\t") if "\t" in line else line.split()
+            if len(parts) >= 2:
+                cur.execute(
+                    "INSERT INTO simple (keys, ch) VALUES (?, ?)",
+                    (parts[0].lower(), parts[1].strip()),
+                )
+                count += 1
+    con.commit()
+    con.close()
+    return count
+
+def update_phrase_table(db_path, phrase_file):
+    con = sqlite3.connect(db_path)
+    cur = con.cursor()
+    ensure_schema(cur)
+    cur.execute("DELETE FROM phrase;")
+    count = 0
+    with open(phrase_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("|"):
+                continue
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                cur.execute(
+                    "INSERT INTO phrase (keys, ph) VALUES (?, ?)",
+                    (parts[0].lower(), parts[1].strip()),
+                )
+                count += 1
+    con.commit()
+    con.close()
+    return count
+
+if __name__ == "__main__":
+    db_path = sys.argv[1]
+    cin_file = sys.argv[2] if len(sys.argv) > 2 else None
+    simple_file = sys.argv[3] if len(sys.argv) > 3 else None
+    phrase_file = sys.argv[4] if len(sys.argv) > 4 else None
+
+    if cin_file and os.path.exists(cin_file):
+        n = update_main_table(db_path, cin_file)
+        print(f"main: {n} entries updated")
+    if simple_file and os.path.exists(simple_file):
+        n = update_simple_table(db_path, simple_file)
+        print(f"simple: {n} entries updated")
+    if phrase_file and os.path.exists(phrase_file):
+        n = update_phrase_table(db_path, phrase_file)
+        print(f"phrase: {n} entries updated")
+PYEOF
+
+    # 更新
+    info "重建 array.db..."
+    cp "$ARRAY_DB" "$tmpdir/array.db"
+
+    python3 "$tmpdir/update_db.py" \
+        "$tmpdir/array.db" \
+        "$tmpdir/array30.cin" \
+        "$tmpdir/simplecode.cin" \
+        "$tmpdir/phrase.txt"
+
+    local new_count
+    new_count=$(sqlite3 "$tmpdir/array.db" "SELECT count(*) FROM main;" 2>/dev/null)
+
+    echo ""
+    info "更新前主表筆數: $current_count"
+    info "更新後主表筆數: $new_count"
+
+    if [[ "$new_count" -lt 10000 ]]; then
+        err "更新後資料筆數異常偏少 ($new_count)，中止"
+        err "原始 array.db 未被修改"
+        exit 1
+    fi
+
+    echo ""
+    if confirm "確認要套用新的字根表嗎？"; then
+        need_sudo
+        sudo cp "$tmpdir/array.db" "$ARRAY_DB"
+        ok "字根表已更新"
+        restart_fcitx5
+    else
+        info "已取消"
+    fi
+}
+
+do_diagnose() {
+    step "fcitx5-array 診斷報告"
+    echo ""
+
+    # 1. 系統資訊
+    echo "【系統資訊】"
+    echo "  OS:       $(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')"
+    echo "  Kernel:   $(uname -r)"
+    echo "  Arch:     $(uname -m)"
+    echo "  fcitx5:   $(fcitx5 --version 2>/dev/null | head -1 || echo 'not found')"
+
+    local lang="${LANG:-unset}"
+    if [[ "$lang" == *"zh_TW"* ]]; then
+        echo -e "  語系:     ${GREEN}[OK]${NC} $lang"
+    else
+        echo -e "  語系:     ${YELLOW}[WARN]${NC} $lang（非 zh_TW）"
+    fi
+
+    local desktop="${XDG_CURRENT_DESKTOP:-unknown}"
+    echo "  桌面:     $desktop"
+    echo ""
+
+    # 2. 套件狀態
+    echo "【套件狀態】"
+    for p in fcitx5 fcitx5-table-array30; do
+        local v
+        v=$(dpkg -l "$p" 2>/dev/null | awk '/^ii/{print $3}' | head -1 || true)
+        echo "  $p: ${v:-未安裝}"
+    done
+    local fmt_v
+    fmt_v=$(dpkg -l 'libfmt*' 2>/dev/null | awk '/^ii[[:space:]]+libfmt[0-9]/{print $2" "$3}' | head -1)
+    echo "  libfmt: ${fmt_v:-未安裝}"
+
+    # im-config 檢查
+    if command -v im-config &>/dev/null; then
+        local im_current
+        im_current=$(im-config -m 2>/dev/null || echo "unknown")
+        if echo "$im_current" | grep -qi fcitx; then
+            echo -e "  輸入法框架: ${GREEN}[OK]${NC} fcitx5"
+        else
+            echo -e "  輸入法框架: ${YELLOW}[WARN]${NC} $im_current（非 fcitx5）"
+        fi
+    fi
+
+    echo -e "  fcitx5-array (手動): $([ -f "$ARRAY_SO" ] && echo "${GREEN}已安裝${NC}" || echo "${RED}未安裝${NC}")"
+    if [[ -f "$VERSION_FILE" ]]; then
+        echo "  安裝版本: $(cat "$VERSION_FILE")"
+    fi
+    echo ""
+
+    # 3. 檔案完整性
+    echo "【關鍵檔案】"
+    local files=(
+        "$ARRAY_SO"
+        "$ARRAY_DB"
+        "$ASSOC_SO"
+        "/usr/share/fcitx5/addon/array.conf"
+        "/usr/share/fcitx5/inputmethod/array.conf"
+    )
+    for f in "${files[@]}"; do
+        if [[ -f "$f" ]]; then
+            echo -e "  ${GREEN}[OK]${NC}   $f ($(stat -c%s "$f" 2>/dev/null) bytes)"
+        else
+            echo -e "  ${RED}[FAIL]${NC} $f"
+        fi
+    done
+
+    # symlink 檢查
+    local so_dir
+    so_dir=$(dirname "$ARRAY_SO")
+    if [[ -L "$so_dir/libarray.so" ]]; then
+        local target
+        target=$(readlink "$so_dir/libarray.so")
+        echo -e "  ${GREEN}[OK]${NC}   libarray.so → $target"
+    elif [[ -f "$ARRAY_SO" ]]; then
+        echo -e "  ${RED}[FAIL]${NC} libarray.so symlink 遺失"
+    fi
+    echo ""
+
+    # 4. ABI 健康度
+    echo "【ABI 相容性】"
+    if [[ -f "$ARRAY_SO" ]]; then
+        local missing
+        missing=$(ldd "$ARRAY_SO" 2>&1 | grep "not found" || true)
+        if [[ -n "$missing" ]]; then
+            echo -e "  ${RED}[FAIL]${NC} 有缺失的動態連結庫:"
+            echo "$missing" | sed 's/^/    /'
+        else
+            echo -e "  ${GREEN}[OK]${NC}   所有動態連結庫都已找到"
+        fi
+
+        # fmt 版本匹配
+        local so_fmt_ver host_fmt_ver
+        so_fmt_ver=$(nm -D "$ARRAY_SO" 2>/dev/null | grep -oP 'fmt::v\K[0-9]+' | head -1 || true)
+        # Ubuntu multiarch 路徑
+        local fmt_lib
+        fmt_lib=$(find /usr/lib/x86_64-linux-gnu -name 'libfmt.so*' -type f 2>/dev/null | head -1 || true)
+        if [[ -n "$fmt_lib" ]]; then
+            host_fmt_ver=$(nm -D "$fmt_lib" 2>/dev/null | grep -oP 'fmt::v\K[0-9]+' | head -1 || true)
+        fi
+        if [[ -n "$so_fmt_ver" ]] && [[ -n "$host_fmt_ver" ]]; then
+            if [[ "$so_fmt_ver" == "$host_fmt_ver" ]]; then
+                echo -e "  ${GREEN}[OK]${NC}   fmt 版本匹配: v$so_fmt_ver"
+            else
+                echo -e "  ${RED}[FAIL]${NC} fmt 版本不匹配: array.so 用 v$so_fmt_ver, host 有 v$host_fmt_ver"
+            fi
+        fi
+    else
+        echo -e "  ${YELLOW}[SKIP]${NC} array.so 不存在，跳過 ABI 檢查"
+    fi
+    echo ""
+
+    # 5. 字表統計
+    echo "【字根表統計】"
+    if [[ -f "$ARRAY_DB" ]]; then
+        echo "  主表 (main):   $(sqlite3 "$ARRAY_DB" "SELECT count(*) FROM main;" 2>/dev/null || echo '?') 筆"
+        echo "  簡碼 (simple): $(sqlite3 "$ARRAY_DB" "SELECT count(*) FROM simple;" 2>/dev/null || echo '?') 筆"
+        echo "  詞組 (phrase): $(sqlite3 "$ARRAY_DB" "SELECT count(*) FROM phrase;" 2>/dev/null || echo '?') 筆"
+    else
+        echo -e "  ${YELLOW}[SKIP]${NC} array.db 不存在"
+    fi
+    echo ""
+
+    # 6. fcitx5 設定
+    echo "【fcitx5 Profile】"
+    if [[ -f "$FCITX5_PROFILE" ]]; then
+        if grep -q "Name=array$" "$FCITX5_PROFILE"; then
+            echo -e "  ${GREEN}[OK]${NC}   原生 array 已在 profile 中"
+        else
+            echo -e "  ${YELLOW}[WARN]${NC} 原生 array 不在 profile 中"
+        fi
+        if grep -q "Name=array30$" "$FCITX5_PROFILE"; then
+            echo -e "  ${BLUE}[INFO]${NC} table-based array30 也在 profile 中"
+        fi
+    else
+        echo -e "  ${YELLOW}[WARN]${NC} 找不到 fcitx5 profile"
+    fi
+
+    # fcitx5 是否執行中
+    if pgrep -x fcitx5 &>/dev/null; then
+        echo -e "  ${GREEN}[OK]${NC}   fcitx5 正在執行"
+    else
+        echo -e "  ${YELLOW}[WARN]${NC} fcitx5 未執行"
+    fi
+    echo ""
+
+    # 7. 備份狀態
+    echo "【備份】"
+    if [[ -d "$BACKUP_DIR" ]]; then
+        local bcount
+        bcount=$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+        echo "  備份數量: $bcount"
+        echo "  備份位置: $BACKUP_DIR"
+        if [[ "$bcount" -gt 0 ]]; then
+            echo "  最近備份:"
+            find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -printf "    %f\n" 2>/dev/null | sort -r | head -3
+        fi
+    else
+        echo "  尚無備份"
+    fi
+    echo ""
+
+    # 8. steamdeck-array30 共存檢查
+    echo "【共存檢查】"
+    if [[ -d "$HOME/.local/share/fcitx5-array-backup" ]]; then
+        echo -e "  ${YELLOW}[WARN]${NC} 偵測到 steamdeck-array30 的備份目錄"
+        echo "  路徑: $HOME/.local/share/fcitx5-array-backup"
+        echo "  建議：兩個工具不應同時使用，請先移除 steamdeck-array30 安裝"
+    else
+        echo -e "  ${GREEN}[OK]${NC}   未偵測到 steamdeck-array30 殘留"
+    fi
+}
+
+do_uninstall() {
+    step "移除 fcitx5-array"
+
+    if [[ ! -f "$ARRAY_SO" ]]; then
+        warn "fcitx5-array 未安裝"
+        exit 0
+    fi
+
+    info "將移除 fcitx5-array 並切回 table-based array30"
+    info "table-based array30 不受影響"
+    echo ""
+    confirm "確認移除？" || exit 0
+
+    # 備份
+    do_backup
+
+    # 移除檔案
+    need_sudo
+    sudo rm -f "$ARRAY_SO"
+    sudo rm -f "$(dirname "$ARRAY_SO")/libarray.so"
+    sudo rm -f "$ARRAY_DB"
+    sudo rm -f /usr/share/fcitx5/addon/array.conf
+    sudo rm -f /usr/share/fcitx5/inputmethod/array.conf
+    sudo rm -f "$ASSOC_SO" 2>/dev/null || true
+    ok "已移除 fcitx5-array 相關檔案"
+
+    # 將 profile 切回 array30
+    if [[ -f "$FCITX5_PROFILE" ]]; then
+        if grep -q "Name=array$" "$FCITX5_PROFILE"; then
+            sed -i 's/^Name=array$/Name=array30/' "$FCITX5_PROFILE"
+            info "已將 profile 中的 array 切換回 array30"
+        fi
+        if grep -q "DefaultIM=array$" "$FCITX5_PROFILE"; then
+            sed -i 's/^DefaultIM=array$/DefaultIM=array30/' "$FCITX5_PROFILE"
+        fi
+    fi
+
+    restart_fcitx5
+    ok "fcitx5-array 已移除"
+
+    echo ""
+    info "以下編譯依賴未自動移除（可能其他程式在用）："
+    info "  sudo apt remove build-essential cmake extra-cmake-modules"
+    info "  sudo apt remove libfcitx5core-dev libfcitx5config-dev libfcitx5utils-dev"
+    info "  sudo apt remove libsqlite3-dev libfmt-dev"
+}
 
 do_backup() {
     step "備份目前的 fcitx5-array 檔案"
