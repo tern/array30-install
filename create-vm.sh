@@ -167,38 +167,67 @@ if [[ ! -f "$SSH_PUBKEY_FILE" ]]; then
 fi
 SSH_KEY=$(cat "$SSH_PUBKEY_FILE")
 
-# 快照感知啟動：偵測現有快照，決定從哪個 Phase 開始
+# 快照感知啟動：偵測現有快照，顯示選單
 START_FROM_PHASE="A"
 
-if snapshot_exists "$SNAP_B"; then
-    echo ""
-    echo "偵測到快照：$SNAP_B（Ubuntu + 桌面）"
-    if ask_yn "還原此快照？"; then
-        restore_snapshot "$SNAP_B"
-        if ask_yn "繼續跑 Phase C（在 VM 內執行 array30-install.sh 安裝行列30）？"; then
-            START_FROM_PHASE="C"
-        else
-            echo "已還原至 $SNAP_B，停止執行。"
-            echo "SSH: ssh $VM_USER@$VM_IP"
-            exit 0
-        fi
-    else
-        echo "略過快照，繼續下一個選項…"
-    fi
+# 建立可用選項清單
+MENU_OPTIONS=()
+MENU_SNAPS=()
+MENU_NEXTS=()
+
+snapshot_exists "$SNAP_C" && {
+    MENU_OPTIONS+=("還原 snap-phase-c（行列30已安裝完成）→ 停在此快照或重跑 Phase C")
+    MENU_SNAPS+=("$SNAP_C")
+    MENU_NEXTS+=("C")
+}
+snapshot_exists "$SNAP_B" && {
+    MENU_OPTIONS+=("還原 snap-phase-b（Ubuntu + 桌面環境）→ 停在此快照或跑 Phase C")
+    MENU_SNAPS+=("$SNAP_B")
+    MENU_NEXTS+=("C")
+}
+snapshot_exists "$SNAP_A" && {
+    MENU_OPTIONS+=("還原 snap-phase-a（基礎 Ubuntu）→ 停在此快照或跑 Phase B+C")
+    MENU_SNAPS+=("$SNAP_A")
+    MENU_NEXTS+=("B")
+}
+MENU_OPTIONS+=("從 Phase A 全新建立 VM")
+MENU_SNAPS+=("")
+MENU_NEXTS+=("A")
+
+echo ""
+echo "=== 請選擇起始點 ==="
+for i in "${!MENU_OPTIONS[@]}"; do
+    echo "  $((i+1))) ${MENU_OPTIONS[$i]}"
+done
+echo ""
+read -rp "選擇 [1-${#MENU_OPTIONS[@]}]: " MENU_CHOICE
+
+if ! [[ "$MENU_CHOICE" =~ ^[0-9]+$ ]] || \
+   [[ "$MENU_CHOICE" -lt 1 ]] || \
+   [[ "$MENU_CHOICE" -gt ${#MENU_OPTIONS[@]} ]]; then
+    echo "無效選擇，取消。"
+    exit 1
 fi
 
-if [[ "$START_FROM_PHASE" != "C" ]] && snapshot_exists "$SNAP_A"; then
-    echo ""
-    echo "偵測到快照：$SNAP_A（基礎 Ubuntu）"
-    if ask_yn "還原此快照？"; then
-        restore_snapshot "$SNAP_A"
-        if ask_yn "繼續跑 Phase B+C（B：安裝 GNOME 桌面；C：安裝行列30）？"; then
-            START_FROM_PHASE="B"
-        else
-            echo "已還原至 $SNAP_A，停止執行。"
-            echo "SSH: ssh $VM_USER@$VM_IP"
-            exit 0
-        fi
+CHOSEN_IDX=$((MENU_CHOICE - 1))
+CHOSEN_SNAP="${MENU_SNAPS[$CHOSEN_IDX]}"
+CHOSEN_NEXT="${MENU_NEXTS[$CHOSEN_IDX]}"
+
+if [[ -n "$CHOSEN_SNAP" ]]; then
+    restore_snapshot "$CHOSEN_SNAP"
+
+    # 決定繼續下一步還是停在此快照
+    case "$CHOSEN_NEXT" in
+        C) NEXT_DESC="Phase C（在 VM 內執行 array30-install.sh 安裝行列30）" ;;
+        B) NEXT_DESC="Phase B+C（B：安裝 GNOME 桌面；C：安裝行列30）" ;;
+    esac
+
+    if ask_yn "繼續跑 $NEXT_DESC？"; then
+        START_FROM_PHASE="$CHOSEN_NEXT"
+    else
+        echo "已還原至 $CHOSEN_SNAP，停止執行。"
+        echo "SSH: ssh $VM_USER@$VM_IP"
+        exit 0
     fi
 fi
 
