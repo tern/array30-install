@@ -453,7 +453,7 @@ echo "=== Phase B: 安裝桌面環境 ==="
 echo "[B1] 等待 cloud-init 完成…"
 B1_WAIT=0
 while [[ $B1_WAIT -lt 300 ]]; do
-    if try_ssh "test -f /var/lib/cloud/instance/boot-finished-marker"; then
+    if try_ssh "test -f /var/lib/cloud/instance/boot-finished-marker || cloud-init status 2>/dev/null | grep -qE 'done|disabled'"; then
         echo "  [${B1_WAIT}s] cloud-init 已完成"
         break
     fi
