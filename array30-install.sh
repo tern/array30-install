@@ -148,24 +148,30 @@ setup_locale() {
         info "安裝繁體中文語言套件..."
         need_sudo
 
-        # 基本語言套件
-        sudo apt-get install -y language-pack-zh-hant fonts-noto-cjk 2>&1 | tail -3
+        # 基本語言套件 + GNOME 翻譯套件（不依賴 XDG_CURRENT_DESKTOP，SSH 下也裝）
+        sudo apt-get install -y language-pack-zh-hant language-pack-gnome-zh-hant fonts-noto-cjk 2>&1 | tail -3
 
-        # GNOME 桌面額外套件
-        if [[ "${XDG_CURRENT_DESKTOP:-}" == *"GNOME"* ]]; then
-            sudo apt-get install -y language-pack-gnome-zh-hant 2>&1 | tail -3
-        fi
-
-        # 產生 locale
+        # 產生 locale + 設定系統預設語系（LANGUAGE 控制 UI 翻譯，LANG 控制格式）
         sudo locale-gen zh_TW.UTF-8 2>&1 | tail -1
-        sudo update-locale LANG=zh_TW.UTF-8
+        sudo update-locale LANG=zh_TW.UTF-8 LANGUAGE=zh_TW:zh
 
-        # 切換桌面 UI 語系
-        if [[ "${XDG_CURRENT_DESKTOP:-}" == *"GNOME"* ]]; then
-            gsettings set org.gnome.system.locale region 'zh_TW.UTF-8' 2>/dev/null || true
+        # 切換 GNOME 使用者介面語言（AccountsService，SSH 下也有效）
+        info "設定 GNOME 介面語言為繁體中文..."
+        local acct_file="/var/lib/AccountsService/users/$USER"
+        sudo mkdir -p /var/lib/AccountsService/users
+        if [[ -f "$acct_file" ]]; then
+            if grep -q '^Language=' "$acct_file" 2>/dev/null; then
+                sudo sed -i 's/^Language=.*/Language=zh_TW/' "$acct_file"
+            elif grep -q '^\[User\]' "$acct_file" 2>/dev/null; then
+                sudo sed -i '/^\[User\]/a Language=zh_TW' "$acct_file"
+            else
+                printf '\n[User]\nLanguage=zh_TW\n' | sudo tee -a "$acct_file" > /dev/null
+            fi
+        else
+            printf '[User]\nLanguage=zh_TW\n' | sudo tee "$acct_file" > /dev/null
         fi
 
-        ok "繁體中文語系已安裝"
+        ok "繁體中文語系已安裝，GNOME 介面語言已設定"
         warn "語系切換需要登出再登入才會完全生效"
         info "fcitx5-array 安裝不受影響，將繼續進行"
     fi
