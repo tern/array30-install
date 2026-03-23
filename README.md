@@ -57,6 +57,30 @@ bash array30-install.sh install
 - fcitx5-array：約 1.5GB 磁碟空間（編譯暫存）
 - ibus-array：約 100MB 磁碟空間
 
+## 疑難排解
+
+### 安裝後無法叫出 Fcitx5 輸入法
+
+編輯 `/etc/environment`：
+
+```bash
+sudo vim /etc/environment
+```
+
+加入以下環境變數，**重開機**後生效：
+
+```ini
+# GTK 程式（若在 GNOME Wayland 環境下跑純 Wayland 程式，可省略）
+GTK_IM_MODULE=fcitx
+
+QT_IM_MODULE=fcitx
+
+# 以下三條適用於 X11；使用 Wayland 桌面通常不需要設定
+XMODIFIERS=@im=fcitx
+SDL_IM_MODULE=fcitx
+GLFW_IM_MODULE=ibus
+```
+
 ## 字根表來源
 
 兩種引擎的輸入法資料均來自 [gontera/array30](https://github.com/gontera/array30)：
