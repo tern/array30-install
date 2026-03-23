@@ -566,6 +566,9 @@ do_install() {
     check_network
     check_disk_space
 
+    # 確保 dpkg 狀態乾淨（前一步驟若中途中斷會殘留 interrupted 狀態）
+    sudo dpkg --configure -a 2>&1 | tail -3 || true
+
     # 語系與 fcitx5
     setup_locale
     setup_fcitx5
