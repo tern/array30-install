@@ -210,43 +210,40 @@ setup_fcitx5() {
     setup_im_env
 }
 
-setup_im_env() {
-    local profile_file="$HOME/.profile"
-    local marker="# fcitx5 輸入法環境變數（由 array30-install.sh 自動新增）"
-
-    # 用 marker 偵測是否已經設定過，避免重複寫入
-    if grep -qF "$marker" "$profile_file" 2>/dev/null; then
+_append_env_var() {
+    # 若 /etc/environment 中尚未設定該變數，則以 sudo tee -a 寫入
+    # 用法：_append_env_var KEY VALUE
+    local key="$1" value="$2"
+    local line="${key}=${value}"
+    if grep -qE "^${key}=" /etc/environment 2>/dev/null; then
         return
     fi
+    echo "$line" | sudo tee -a /etc/environment >/dev/null
+    info "  新增 $line"
+}
 
-    info "設定輸入法環境變數到 $profile_file"
-    {
-        echo ""
-        echo "$marker"
-        echo "export GTK_IM_MODULE=fcitx"
-        echo "export QT_IM_MODULE=fcitx"
-        echo 'export XMODIFIERS=@im=fcitx'
-    } >> "$profile_file"
-    ok "已寫入 IM 環境變數"
+setup_im_env() {
+    local env_file="/etc/environment"
+    info "設定輸入法環境變數到 $env_file"
+    need_sudo
+    _append_env_var GTK_IM_MODULE   fcitx
+    _append_env_var QT_IM_MODULE    fcitx
+    _append_env_var XMODIFIERS      "@im=fcitx"
+    _append_env_var SDL_IM_MODULE   fcitx
+    _append_env_var GLFW_IM_MODULE  ibus
+    ok "IM 環境變數已確認寫入（重開機後生效）"
 }
 
 setup_im_env_ibus() {
-    local profile_file="$HOME/.profile"
-    local marker="# ibus 輸入法環境變數（由 array30-install.sh 自動新增）"
-
-    if grep -qF "$marker" "$profile_file" 2>/dev/null; then
-        return
-    fi
-
-    info "設定輸入法環境變數到 $profile_file"
-    {
-        echo ""
-        echo "$marker"
-        echo "export GTK_IM_MODULE=ibus"
-        echo "export QT_IM_MODULE=ibus"
-        echo 'export XMODIFIERS=@im=ibus'
-    } >> "$profile_file"
-    ok "已寫入 IM 環境變數"
+    local env_file="/etc/environment"
+    info "設定輸入法環境變數到 $env_file"
+    need_sudo
+    _append_env_var GTK_IM_MODULE   ibus
+    _append_env_var QT_IM_MODULE    ibus
+    _append_env_var XMODIFIERS      "@im=ibus"
+    _append_env_var SDL_IM_MODULE   ibus
+    _append_env_var GLFW_IM_MODULE  ibus
+    ok "IM 環境變數已確認寫入（重開機後生效）"
 }
 
 # ── 編譯 ──────────────────────────────────────────────────────────────────

@@ -61,13 +61,7 @@ bash array30-install.sh install
 
 ### 安裝後無法叫出 Fcitx5 輸入法
 
-編輯 `/etc/environment`：
-
-```bash
-sudo vim /etc/environment
-```
-
-加入以下環境變數，**重開機**後生效：
+安裝腳本會自動將以下環境變數寫入 `/etc/environment`（已存在的項目不會重複寫入），**重開機**後生效：
 
 ```ini
 # GTK 程式（若在 GNOME Wayland 環境下跑純 Wayland 程式，可省略）
@@ -80,6 +74,8 @@ XMODIFIERS=@im=fcitx
 SDL_IM_MODULE=fcitx
 GLFW_IM_MODULE=ibus
 ```
+
+若安裝後仍無法使用，可手動確認 `/etc/environment` 是否包含上述內容。
 
 ## 字根表來源
 
