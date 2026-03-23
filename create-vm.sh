@@ -167,9 +167,15 @@ START_FROM_PHASE="A"
 if snapshot_exists "$SNAP_B"; then
     echo ""
     echo "偵測到快照：$SNAP_B（Ubuntu + 桌面）"
-    if ask_yn "從此快照還原，直接跑 Phase C（測試 array30-install）？"; then
+    if ask_yn "還原此快照？"; then
         restore_snapshot "$SNAP_B"
-        START_FROM_PHASE="C"
+        if ask_yn "繼續跑 Phase C（測試 array30-install）？"; then
+            START_FROM_PHASE="C"
+        else
+            echo "已還原至 $SNAP_B，停止執行。"
+            echo "SSH: ssh $VM_USER@$VM_IP"
+            exit 0
+        fi
     else
         echo "略過快照，繼續下一個選項…"
     fi
@@ -178,9 +184,15 @@ fi
 if [[ "$START_FROM_PHASE" != "C" ]] && snapshot_exists "$SNAP_A"; then
     echo ""
     echo "偵測到快照：$SNAP_A（基礎 Ubuntu）"
-    if ask_yn "從此快照還原，直接跑 Phase B+C？"; then
+    if ask_yn "還原此快照？"; then
         restore_snapshot "$SNAP_A"
-        START_FROM_PHASE="B"
+        if ask_yn "繼續跑 Phase B+C？"; then
+            START_FROM_PHASE="B"
+        else
+            echo "已還原至 $SNAP_A，停止執行。"
+            echo "SSH: ssh $VM_USER@$VM_IP"
+            exit 0
+        fi
     fi
 fi
 
