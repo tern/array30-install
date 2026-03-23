@@ -134,8 +134,8 @@ vm_shutdown_wait() {
 
 create_snapshot() {
     local snap="$1" desc="$2"
-    echo "  建立快照「$snap」…"
     vm_shutdown_wait
+    echo "  建立快照「$snap」…"
     sudo virsh snapshot-create-as "$VM_NAME" "$snap" "$desc" --atomic
     echo "  快照建立完成：$snap"
     echo "  重新啟動 VM…"
