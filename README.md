@@ -62,6 +62,14 @@ bash array30-install.sh install
 8. 設定 fcitx5 profile
 9. 驗證安裝結果
 
+## 字根表來源
+
+| 檔案 | 來源 |
+|------|------|
+| 主字根表（`array30.conf`） | [gontera/array30](https://github.com/gontera/array30) — 官方行列30鍵碼表 |
+| 簡碼表（`array30_simplecode.cin`） | 同上倉庫 |
+| 詞組表（`array30_phrase.cin`） | [ray2501/fcitx5-array](https://github.com/ray2501/fcitx5-array) 內附 |
+
 ## 授權
 
 GPL-2.0-or-later
