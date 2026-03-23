@@ -229,6 +229,25 @@ setup_im_env() {
     ok "已寫入 IM 環境變數"
 }
 
+setup_im_env_ibus() {
+    local profile_file="$HOME/.profile"
+    local marker="# ibus 輸入法環境變數（由 array30-install.sh 自動新增）"
+
+    if grep -qF "$marker" "$profile_file" 2>/dev/null; then
+        return
+    fi
+
+    info "設定輸入法環境變數到 $profile_file"
+    {
+        echo ""
+        echo "$marker"
+        echo "export GTK_IM_MODULE=ibus"
+        echo "export QT_IM_MODULE=ibus"
+        echo 'export XMODIFIERS=@im=ibus'
+    } >> "$profile_file"
+    ok "已寫入 IM 環境變數"
+}
+
 # ── 編譯 ──────────────────────────────────────────────────────────────────
 
 install_build_deps() {
@@ -549,22 +568,124 @@ verify_array_loaded() {
     return $result
 }
 
+# ── 引擎選擇 ──────────────────────────────────────────────────────────────
+
+ENGINE="fcitx5"  # 預設，由 select_engine() 覆寫
+
+show_engine_comparison() {
+    echo ""
+    echo "  ┌─────────────────────┬──────────────────┬──────────────────┐"
+    echo "  │ 功能                │ fcitx5-array     │ ibus-array       │"
+    echo "  ├─────────────────────┼──────────────────┼──────────────────┤"
+    echo "  │ 安裝方式            │ 從源碼編譯       │ apt + cin 轉換   │"
+    echo "  │ 安裝時間            │ 約 5 分鐘        │ 約 1 分鐘        │"
+    echo "  │ W+數字符號輸入      │ ✓                │ ✗                │"
+    echo "  │ 一/二級簡碼         │ ✓                │ ✓                │"
+    echo "  │ 萬用字元 (?/*)      │ ✓                │ ✗                │"
+    echo "  │ 詞組輸入            │ ✓                │ 有限             │"
+    echo "  │ 聯想字建議          │ ✓                │ ✗                │"
+    echo "  │ 反查碼 Ctrl+Alt+E   │ ✓                │ ✗                │"
+    echo "  │ GNOME 原生整合      │ 需額外設定       │ 原生支援         │"
+    echo "  │ 適合對象            │ 進階用戶         │ 輕量需求         │"
+    echo "  └─────────────────────┴──────────────────┴──────────────────┘"
+    echo ""
+}
+
+select_engine() {
+    step "選擇輸入法引擎"
+    show_engine_comparison
+    echo "  1) fcitx5-array（功能完整，推薦）"
+    echo "  2) ibus-array（輕量快速，GNOME 原生）"
+    echo ""
+    local choice
+    read -rp "選擇 [1-2]（預設 1）: " choice
+    case "${choice:-1}" in
+        2) ENGINE="ibus";    ok "已選擇：ibus-array" ;;
+        *) ENGINE="fcitx5"; ok "已選擇：fcitx5-array" ;;
+    esac
+    echo ""
+}
+
+do_install_ibus() {
+    setup_locale
+
+    step "安裝 ibus 輸入法框架"
+    need_sudo
+    sudo dpkg --configure -a 2>&1 | tail -3 || true
+    sudo apt-get install -y ibus ibus-table 2>&1 | tail -3
+    if command -v im-config &>/dev/null; then
+        im-config -n ibus 2>/dev/null || true
+    fi
+    ok "ibus 已安裝"
+
+    step "下載行列30字根表"
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' RETURN
+
+    local cin_url="https://raw.githubusercontent.com/gontera/array30/main/array30-OpenVanilla-big.cin"
+    info "下載 array30.cin..."
+    if ! curl -fL "$cin_url" -o "$tmpdir/array30.cin" 2>/dev/null; then
+        err "下載字根表失敗，請確認網路連線"
+        exit 1
+    fi
+    ok "字根表下載完成"
+
+    step "建立 ibus-table 資料庫"
+    need_sudo
+    sudo mkdir -p /usr/share/ibus/tables
+    if ! command -v ibus-table-createdb &>/dev/null; then
+        sudo apt-get install -y ibus-table 2>&1 | tail -2
+    fi
+    sudo ibus-table-createdb \
+        --name=/usr/share/ibus/tables/array30.db \
+        --source="$tmpdir/array30.cin" 2>&1 | tail -3
+    ok "ibus-table 資料庫建立完成"
+
+    setup_im_env_ibus
+
+    step "重新啟動 ibus"
+    ibus restart 2>/dev/null || {
+        killall ibus-daemon 2>/dev/null || true
+        sleep 1
+        ibus-daemon -drxR 2>/dev/null || true
+    }
+
+    echo ""
+    ok "================================================"
+    ok "  行列30 (ibus-array) 安裝成功！"
+    ok "  請至「設定 → 鍵盤 → 輸入來源」加入行列30"
+    ok "  或登出後重新登入讓 ibus 生效"
+    ok "================================================"
+    echo ""
+}
+
 # ── Stub functions ────────────────────────────────────────────────────────
 
 do_install() {
-    step "行列30 (fcitx5-array) 安裝程序"
-    echo ""
-    info "此腳本將:"
-    info "  1. 檢查環境並設定繁體中文語系"
-    info "  2. 安裝 fcitx5 輸入法框架（如需要）"
-    info "  3. 原生編譯 fcitx5-array"
-    info "  4. 安裝並設定行列30輸入法"
+    step "行列30安裝程序"
     echo ""
 
     # 前置檢查
     check_ubuntu
     check_network
     check_disk_space
+
+    # 選擇引擎
+    select_engine
+
+    if [[ "$ENGINE" == "ibus" ]]; then
+        do_install_ibus
+        return
+    fi
+
+    # ── fcitx5-array 安裝路徑 ──
+    info "此腳本將:"
+    info "  1. 檢查環境並設定繁體中文語系"
+    info "  2. 安裝 fcitx5 輸入法框架（如需要）"
+    info "  3. 原生編譯 fcitx5-array"
+    info "  4. 安裝並設定行列30輸入法"
+    echo ""
 
     # 確保 dpkg 狀態乾淨（前一步驟若中途中斷會殘留 interrupted 狀態）
     sudo dpkg --configure -a 2>&1 | tail -3 || true
