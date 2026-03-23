@@ -598,6 +598,14 @@ select_engine() {
     echo "  2) ibus-array（輕量快速，GNOME 原生）"
     echo ""
     local choice
+    if [[ -n "${ARRAY30_ENGINE:-}" ]]; then
+        case "$ARRAY30_ENGINE" in
+            ibus)   ENGINE="ibus";   ok "已選擇（ARRAY30_ENGINE）：ibus-array"   ;;
+            *)      ENGINE="fcitx5"; ok "已選擇（ARRAY30_ENGINE）：fcitx5-array" ;;
+        esac
+        echo ""
+        return
+    fi
     if [[ "$IS_PIPE" == true ]]; then
         choice=1
         ok "已選擇（自動）：fcitx5-array"

@@ -553,14 +553,32 @@ fi  # end: if [[ "$START_FROM_PHASE" != "C" ]]
 
 echo "=== Phase C: 測試 array30-install.sh ==="
 
+# 選擇要測試的引擎
+if [[ "$AUTO_YES" == true ]]; then
+    TEST_ENGINE="fcitx5"
+    echo "  [AUTO] 測試引擎：fcitx5-array"
+else
+    echo ""
+    echo "  選擇要測試的輸入法引擎："
+    echo "    1) fcitx5-array（功能完整，推薦）"
+    echo "    2) ibus-array（輕量快速，GNOME 原生）"
+    echo ""
+    read -rp "  選擇 [1-2]（預設 1）: " ENGINE_CHOICE
+    case "${ENGINE_CHOICE:-1}" in
+        2) TEST_ENGINE="ibus"   ; echo "  已選擇：ibus-array" ;;
+        *) TEST_ENGINE="fcitx5" ; echo "  已選擇：fcitx5-array" ;;
+    esac
+fi
+echo ""
+
 echo "[C1] 複製 array30-install.sh 到 VM…"
 scp $SSH_OPTS "$SCRIPT_DIR/array30-install.sh" "$VM_USER@$VM_IP:~/"
 
-echo "[C2] 執行 array30-install.sh install…"
+echo "[C2] 執行 array30-install.sh install（ARRAY30_ENGINE=$TEST_ENGINE）…"
 echo "---------- 安裝輸出 ----------"
 
 set +e
-ssh $SSH_OPTS "$VM_USER@$VM_IP" "bash ~/array30-install.sh install" 2>&1 | tee /tmp/array30-install-result.log
+ssh $SSH_OPTS "$VM_USER@$VM_IP" "ARRAY30_ENGINE=$TEST_ENGINE bash ~/array30-install.sh install" 2>&1 | tee /tmp/array30-install-result.log
 INSTALL_EXIT=${PIPESTATUS[0]}
 set -e
 
