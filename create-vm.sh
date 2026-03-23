@@ -338,10 +338,12 @@ virsh --connect qemu:///session undefine "$VM_NAME" --nvram 2>/dev/null || true
 virsh destroy "$VM_NAME" 2>/dev/null || true
 virsh undefine "$VM_NAME" --nvram 2>/dev/null || true
 rm -f "$DISK_PATH"
-sudo rm -f "/var/lib/libvirt/qemu/nvram/${VM_NAME}_VARS.fd"
+rm -f "/var/lib/libvirt/qemu/nvram/${VM_NAME}_VARS.fd" 2>/dev/null || true
 
 echo "[A2] 確保 libvirtd + default 網路…"
-sudo systemctl start libvirtd
+if ! systemctl is-active --quiet libvirtd 2>/dev/null; then
+    sudo systemctl start libvirtd || { echo "錯誤：無法啟動 libvirtd（需要 sudo 權限）"; exit 1; }
+fi
 virsh net-start default 2>/dev/null || true
 
 if [[ -f "$CLOUD_IMG_CACHE" ]]; then
@@ -400,7 +402,7 @@ echo "  記憶體: $((VM_RAM))MB / CPU: ${VM_CPUS} 核"
 echo "  開機模式: Cloud Image (UEFI, no Secure Boot)"
 echo ""
 
-sudo virt-install \
+virt-install \
     --connect qemu:///system \
     --name "$VM_NAME" \
     --ram "$VM_RAM" --vcpus "$VM_CPUS" \
