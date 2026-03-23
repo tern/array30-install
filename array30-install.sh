@@ -637,7 +637,7 @@ do_install_ibus() {
     tmpdir=$(mktemp -d)
     trap 'rm -rf "$tmpdir"' RETURN
 
-    local cin_url="https://raw.githubusercontent.com/gontera/array30/main/array30-OpenVanilla-big.cin"
+    local cin_url="$ARRAY30_CIN_RAW/array30-OpenVanilla-big.cin"
     info "下載 array30.cin..."
     if ! curl -fL "$cin_url" -o "$tmpdir/array30.cin" 2>/dev/null; then
         err "下載字根表失敗，請確認網路連線"

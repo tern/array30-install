@@ -145,6 +145,7 @@ create_snapshot() {
     local snap="$1" desc="$2"
     vm_shutdown_wait
     echo "  建立快照「$snap」…"
+    snapshot_exists "$snap" && $VIRSH snapshot-delete "$VM_NAME" "$snap" &>/dev/null || true
     $VIRSH snapshot-create-as "$VM_NAME" "$snap" "$desc" --atomic
     echo "  快照建立完成：$snap"
     echo "  重新啟動 VM…"
@@ -553,10 +554,10 @@ fi  # end: if [[ "$START_FROM_PHASE" != "C" ]]
 
 echo "=== Phase C: 測試 array30-install.sh ==="
 
-# 選擇要測試的引擎
+# 選擇要測試的引擎（ARRAY30_TEST_ENGINE 可覆蓋 AUTO_YES 預設值）
 if [[ "$AUTO_YES" == true ]]; then
-    TEST_ENGINE="fcitx5"
-    echo "  [AUTO] 測試引擎：fcitx5-array"
+    TEST_ENGINE="${ARRAY30_TEST_ENGINE:-fcitx5}"
+    echo "  [AUTO] 測試引擎：${TEST_ENGINE}-array"
 else
     echo ""
     echo "  選擇要測試的輸入法引擎："
