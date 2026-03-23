@@ -194,6 +194,17 @@ MENU_OPTIONS+=("從 Phase A 全新建立 VM")
 MENU_SNAPS+=("")
 MENU_NEXTS+=("A")
 
+# 有快照時才顯示管理選項
+HAS_SNAPS=false
+for s in "$SNAP_A" "$SNAP_B" "$SNAP_C"; do
+    snapshot_exists "$s" && HAS_SNAPS=true && break
+done
+if [[ "$HAS_SNAPS" == true ]]; then
+    MENU_OPTIONS+=("管理還原點（刪除）")
+    MENU_SNAPS+=("__manage__")
+    MENU_NEXTS+=("")
+fi
+
 echo ""
 echo "=== 請選擇起始點 ==="
 for i in "${!MENU_OPTIONS[@]}"; do
@@ -212,6 +223,48 @@ fi
 CHOSEN_IDX=$((MENU_CHOICE - 1))
 CHOSEN_SNAP="${MENU_SNAPS[$CHOSEN_IDX]}"
 CHOSEN_NEXT="${MENU_NEXTS[$CHOSEN_IDX]}"
+
+# 管理還原點
+if [[ "$CHOSEN_SNAP" == "__manage__" ]]; then
+    echo ""
+    echo "=== 管理還原點 ==="
+    DEL_OPTIONS=()
+    DEL_SNAPS=()
+    for s in "$SNAP_C" "$SNAP_B" "$SNAP_A"; do
+        snapshot_exists "$s" && DEL_OPTIONS+=("刪除 $s") && DEL_SNAPS+=("$s")
+    done
+    DEL_OPTIONS+=("全部刪除")
+    DEL_SNAPS+=("__all__")
+    DEL_OPTIONS+=("取消")
+    DEL_SNAPS+=("__cancel__")
+
+    for i in "${!DEL_OPTIONS[@]}"; do
+        echo "  $((i+1))) ${DEL_OPTIONS[$i]}"
+    done
+    echo ""
+    read -rp "選擇 [1-${#DEL_OPTIONS[@]}]: " DEL_CHOICE
+
+    if ! [[ "$DEL_CHOICE" =~ ^[0-9]+$ ]] || \
+       [[ "$DEL_CHOICE" -lt 1 ]] || \
+       [[ "$DEL_CHOICE" -gt ${#DEL_OPTIONS[@]} ]]; then
+        echo "無效選擇，取消。"
+        exit 1
+    fi
+
+    DEL_TARGET="${DEL_SNAPS[$((DEL_CHOICE - 1))]}"
+
+    if [[ "$DEL_TARGET" == "__cancel__" ]]; then
+        echo "取消。"
+        exit 0
+    elif [[ "$DEL_TARGET" == "__all__" ]]; then
+        for s in "$SNAP_A" "$SNAP_B" "$SNAP_C"; do
+            snapshot_exists "$s" && sudo virsh snapshot-delete "$VM_NAME" "$s" && echo "  已刪除：$s"
+        done
+    else
+        sudo virsh snapshot-delete "$VM_NAME" "$DEL_TARGET" && echo "  已刪除：$DEL_TARGET"
+    fi
+    exit 0
+fi
 
 if [[ -n "$CHOSEN_SNAP" ]]; then
     restore_snapshot "$CHOSEN_SNAP"
