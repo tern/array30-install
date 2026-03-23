@@ -24,13 +24,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # === 全域變數 ===
 VM_IP=""
+VIRSH="virsh --connect qemu:///system"
 
 # === 工具函式 ===
 
 # 從 DHCP leases 查 VM 最新 IP（用 MAC 比對）
 refresh_vm_ip() {
     local mac
-    mac=$(virsh domiflist "$VM_NAME" 2>/dev/null | awk '/default/{print $NF}' || true)
+    mac=$($VIRSH domiflist "$VM_NAME" 2>/dev/null | awk '/default/{print $NF}' || true)
     if [[ -n "$mac" ]]; then
         local new_ip
         # 方法1: ARP neighbor table（即時，反映 VM 目前實際 IP，不受舊 DHCP 租約干擾）
@@ -40,7 +41,7 @@ refresh_vm_ip() {
             | awk '{print $1}' | head -1 || true)
         # 方法2: DHCP leases fallback（取最新租約，以到期時間排序）
         if [[ -z "$new_ip" ]]; then
-            new_ip=$(virsh net-dhcp-leases default 2>/dev/null \
+            new_ip=$($VIRSH net-dhcp-leases default 2>/dev/null \
                 | grep -i "$mac" \
                 | sort -k1,2 \
                 | awk '{print $5}' | cut -d/ -f1 | tail -1 || true)
@@ -70,12 +71,12 @@ wait_for_ssh() {
     while [[ $elapsed -lt $max_wait ]]; do
         # 偵測 VM 狀態
         local vm_state
-        vm_state=$(virsh domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]' || echo "unknown")
+        vm_state=$($VIRSH domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]' || echo "unknown")
 
         # VM 關機 → 自動重啟
         if [[ "$vm_state" == "shutoff" || "$vm_state" == "關機" ]]; then
             echo "  [${elapsed}s] VM 已關機，自動重新啟動…"
-            virsh start "$VM_NAME" &>/dev/null || true
+            $VIRSH start "$VM_NAME" &>/dev/null || true
             VM_IP=""  # 重啟後 IP 可能改變
             sleep 5
             elapsed=$((elapsed + 5))
@@ -122,21 +123,21 @@ ask_yn() {
 
 snapshot_exists() {
     local snap="$1"
-    virsh snapshot-info "$VM_NAME" "$snap" &>/dev/null
+    $VIRSH snapshot-info "$VM_NAME" "$snap" &>/dev/null
 }
 
 vm_shutdown_wait() {
     echo "  關機中…"
-    virsh shutdown "$VM_NAME" &>/dev/null || true
+    $VIRSH shutdown "$VM_NAME" &>/dev/null || true
     local i=0
     while [[ $i -lt 60 ]]; do
         local state
-        state=$(virsh domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]')
+        state=$($VIRSH domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]')
         [[ "$state" == "shutoff" || "$state" == "關機" ]] && return 0
         sleep 3; i=$((i + 3))
     done
     echo "  警告：關機逾時，強制關閉"
-    virsh destroy "$VM_NAME" &>/dev/null || true
+    $VIRSH destroy "$VM_NAME" &>/dev/null || true
     sleep 2
 }
 
@@ -144,19 +145,19 @@ create_snapshot() {
     local snap="$1" desc="$2"
     vm_shutdown_wait
     echo "  建立快照「$snap」…"
-    virsh snapshot-create-as "$VM_NAME" "$snap" "$desc" --atomic
+    $VIRSH snapshot-create-as "$VM_NAME" "$snap" "$desc" --atomic
     echo "  快照建立完成：$snap"
     echo "  重新啟動 VM…"
-    virsh start "$VM_NAME" &>/dev/null
+    $VIRSH start "$VM_NAME" &>/dev/null
     wait_for_ssh 120
 }
 
 restore_snapshot() {
     local snap="$1"
     echo "  還原快照「$snap」…"
-    virsh snapshot-revert "$VM_NAME" "$snap"
+    $VIRSH snapshot-revert "$VM_NAME" "$snap"
     echo "  啟動 VM…"
-    virsh start "$VM_NAME" &>/dev/null || true
+    $VIRSH start "$VM_NAME" &>/dev/null || true
     VM_IP=""
     wait_for_ssh 120
     # snap-phase-b 包含桌面環境，還原後需手動啟動 GDM（快照時已關機）
@@ -282,10 +283,10 @@ if [[ "$CHOSEN_SNAP" == "__manage__" ]]; then
         exit 0
     elif [[ "$DEL_TARGET" == "__all__" ]]; then
         for s in "$SNAP_A" "$SNAP_B" "$SNAP_C"; do
-            snapshot_exists "$s" && virsh snapshot-delete "$VM_NAME" "$s" && echo "  已刪除：$s"
+            snapshot_exists "$s" && $VIRSH snapshot-delete "$VM_NAME" "$s" && echo "  已刪除：$s"
         done
     else
-        virsh snapshot-delete "$VM_NAME" "$DEL_TARGET" && echo "  已刪除：$DEL_TARGET"
+        $VIRSH snapshot-delete "$VM_NAME" "$DEL_TARGET" && echo "  已刪除：$DEL_TARGET"
     fi
     exit 0
 fi
@@ -318,7 +319,7 @@ if [[ "$START_FROM_PHASE" == "A" ]]; then
 
     # 檢查 VM 或 disk 殘留，確認是否重建
     VM_EXISTS=false
-    virsh dominfo "$VM_NAME" &>/dev/null && VM_EXISTS=true
+    $VIRSH dominfo "$VM_NAME" &>/dev/null && VM_EXISTS=true
     [[ -f "$DISK_PATH" ]] && VM_EXISTS=true
 
     if [[ "$VM_EXISTS" == true ]]; then
@@ -335,8 +336,8 @@ echo "=== Phase A: 建立 VM ==="
 echo "[A1] 清理殘留…"
 virsh --connect qemu:///session destroy "$VM_NAME" 2>/dev/null || true
 virsh --connect qemu:///session undefine "$VM_NAME" --nvram 2>/dev/null || true
-virsh destroy "$VM_NAME" 2>/dev/null || true
-virsh undefine "$VM_NAME" --nvram 2>/dev/null || true
+$VIRSH destroy "$VM_NAME" 2>/dev/null || true
+$VIRSH undefine "$VM_NAME" --nvram 2>/dev/null || true
 rm -f "$DISK_PATH"
 rm -f "/var/lib/libvirt/qemu/nvram/${VM_NAME}_VARS.fd" 2>/dev/null || true
 
@@ -344,7 +345,7 @@ echo "[A2] 確保 libvirtd + default 網路…"
 if ! systemctl is-active --quiet libvirtd 2>/dev/null; then
     sudo systemctl start libvirtd || { echo "錯誤：無法啟動 libvirtd（需要 sudo 權限）"; exit 1; }
 fi
-virsh net-start default 2>/dev/null || true
+$VIRSH net-start default 2>/dev/null || true
 
 if [[ -f "$CLOUD_IMG_CACHE" ]]; then
     echo "[A3] Cloud Image 已快取：$CLOUD_IMG_CACHE"
@@ -620,7 +621,7 @@ rm -f "$USERDATA_PATH"
 # #5  Cloud Image 用 BIOS (--boot hd) → 開不了
 #     → Cloud Image 是 GPT+EFI，必須用 UEFI
 # #6  cloud-init power_state:reboot → on_reboot=destroy → VM 關機
-#     → 不加 power_state:reboot，腳本偵測關機後自動 virsh start
+#     → 不加 power_state:reboot，腳本偵測關機後自動 $VIRSH start
 # #7  set -euo pipefail → 等待循環中 pipeline 失敗中斷腳本
 #     → 等待函式用 || true 保護，Phase C 用 set +e
 # #8  重開機後網路斷線（cloud-init 預設 netplan 不含 DHCP）
