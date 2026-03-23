@@ -205,6 +205,16 @@ setup_fcitx5() {
         im-config -n fcitx5 2>/dev/null || true
     fi
 
+    # GNOME 環境：安裝 AppIndicator extension，讓 fcitx5 托盤圖示正確顯示
+    if [[ "${XDG_CURRENT_DESKTOP:-}" == *"GNOME"* ]] || \
+       dpkg -l gnome-shell 2>/dev/null | grep -q '^ii'; then
+        if ! dpkg -l gnome-shell-extension-appindicator 2>/dev/null | grep -q '^ii'; then
+            info "安裝 GNOME AppIndicator extension（修正 fcitx5 托盤圖示）..."
+            need_sudo
+            sudo apt-get install -y gnome-shell-extension-appindicator 2>&1 | tail -2
+        fi
+    fi
+
     # 設定 IM 環境變數
     setup_im_env
 }
