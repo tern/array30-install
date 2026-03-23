@@ -103,6 +103,7 @@ wait_for_ssh() {
 
 SNAP_A="snap-phase-a"  # 基礎 Ubuntu（Phase A 完成後）
 SNAP_B="snap-phase-b"  # Ubuntu + 桌面（Phase B 完成後）
+SNAP_C="snap-phase-c"  # 行列30安裝完成（Phase C 完成後）
 
 ask_yn() {
     local prompt="$1"
@@ -150,6 +151,11 @@ restore_snapshot() {
     sudo virsh start "$VM_NAME" &>/dev/null || true
     VM_IP=""
     wait_for_ssh 120
+    # snap-phase-b 包含桌面環境，還原後需手動啟動 GDM（快照時已關機）
+    if [[ "$snap" == "$SNAP_B" || "$snap" == "$SNAP_C" ]]; then
+        echo "  啟動桌面環境（GDM）…"
+        try_ssh "sudo systemctl start gdm" || true
+    fi
 }
 
 # === 前置檢查 ===
@@ -466,6 +472,12 @@ VM_IP=""
 sleep 20
 if ! wait_for_ssh 300; then
     echo "  警告：重開機後無法重新連線，但安裝已完成"
+fi
+
+if ask_yn "要建立還原點 3（行列30安裝完成，$SNAP_C）？"; then
+    create_snapshot "$SNAP_C" "Ubuntu 24.04 + GNOME Desktop + array30 installed"
+    echo "  啟動桌面環境（GDM）…"
+    try_ssh "sudo systemctl start gdm" || true
 fi
 
 echo ""
