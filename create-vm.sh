@@ -169,7 +169,7 @@ if snapshot_exists "$SNAP_B"; then
     echo "偵測到快照：$SNAP_B（Ubuntu + 桌面）"
     if ask_yn "還原此快照？"; then
         restore_snapshot "$SNAP_B"
-        if ask_yn "繼續跑 Phase C（測試 array30-install）？"; then
+        if ask_yn "繼續跑 Phase C（在 VM 內執行 array30-install.sh 安裝行列30）？"; then
             START_FROM_PHASE="C"
         else
             echo "已還原至 $SNAP_B，停止執行。"
@@ -186,7 +186,7 @@ if [[ "$START_FROM_PHASE" != "C" ]] && snapshot_exists "$SNAP_A"; then
     echo "偵測到快照：$SNAP_A（基礎 Ubuntu）"
     if ask_yn "還原此快照？"; then
         restore_snapshot "$SNAP_A"
-        if ask_yn "繼續跑 Phase B+C？"; then
+        if ask_yn "繼續跑 Phase B+C（B：安裝 GNOME 桌面；C：安裝行列30）？"; then
             START_FROM_PHASE="B"
         else
             echo "已還原至 $SNAP_A，停止執行。"
