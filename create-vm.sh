@@ -589,7 +589,9 @@ echo ""
 if [[ $INSTALL_EXIT -eq 0 ]]; then
     echo "[C3] 執行 array30-install.sh diagnose…"
     echo "---------- 診斷輸出 ----------"
+    set +e
     ssh $SSH_OPTS "$VM_USER@$VM_IP" "bash ~/array30-install.sh diagnose" 2>&1 | tee /tmp/array30-diagnose-result.log
+    set -e
     echo "---------- 診斷結束 ----------"
 else
     echo "[C3] 安裝失敗（exit code: $INSTALL_EXIT），跳過診斷"
