@@ -99,6 +99,59 @@ wait_for_ssh() {
     return 1
 }
 
+# === 快照工具函式 ===
+
+SNAP_A="snap-phase-a"  # 基礎 Ubuntu（Phase A 完成後）
+SNAP_B="snap-phase-b"  # Ubuntu + 桌面（Phase B 完成後）
+
+ask_yn() {
+    local prompt="$1"
+    local ans
+    read -rp "$prompt (y/N) " ans
+    [[ "$ans" =~ ^[Yy]$ ]]
+}
+
+snapshot_exists() {
+    local snap="$1"
+    sudo virsh snapshot-info "$VM_NAME" "$snap" &>/dev/null
+}
+
+vm_shutdown_wait() {
+    echo "  關機中…"
+    sudo virsh shutdown "$VM_NAME" &>/dev/null || true
+    local i=0
+    while [[ $i -lt 60 ]]; do
+        local state
+        state=$(sudo virsh domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]')
+        [[ "$state" == "shutoff" || "$state" == "關機" ]] && return 0
+        sleep 3; i=$((i + 3))
+    done
+    echo "  警告：關機逾時，強制關閉"
+    sudo virsh destroy "$VM_NAME" &>/dev/null || true
+    sleep 2
+}
+
+create_snapshot() {
+    local snap="$1" desc="$2"
+    echo "  建立快照「$snap」…"
+    vm_shutdown_wait
+    sudo virsh snapshot-create-as "$VM_NAME" "$snap" "$desc" --atomic
+    echo "  快照建立完成：$snap"
+    echo "  重新啟動 VM…"
+    sudo virsh start "$VM_NAME" &>/dev/null
+    wait_for_ssh 120
+}
+
+restore_snapshot() {
+    local snap="$1"
+    echo "  還原快照「$snap」…"
+    sudo virsh snapshot-revert "$VM_NAME" "$snap"
+    echo "  啟動 VM…"
+    sudo virsh start "$VM_NAME" &>/dev/null || true
+    VM_IP=""
+    wait_for_ssh 120
+}
+
 # === 前置檢查 ===
 
 # 確保 SSH key 存在
@@ -108,28 +161,48 @@ if [[ ! -f "$SSH_PUBKEY_FILE" ]]; then
 fi
 SSH_KEY=$(cat "$SSH_PUBKEY_FILE")
 
-# 檢查 VM 是否已存在
-VM_EXISTS=false
-if sudo virsh dominfo "$VM_NAME" &>/dev/null; then
-    VM_EXISTS=true
-elif virsh --connect qemu:///session dominfo "$VM_NAME" &>/dev/null; then
-    VM_EXISTS=true
-elif [[ -f "$DISK_PATH" ]]; then
-    VM_EXISTS=true
+# 快照感知啟動：偵測現有快照，決定從哪個 Phase 開始
+START_FROM_PHASE="A"
+
+if snapshot_exists "$SNAP_B"; then
+    echo ""
+    echo "偵測到快照：$SNAP_B（Ubuntu + 桌面）"
+    if ask_yn "從此快照還原，直接跑 Phase C（測試 array30-install）？"; then
+        restore_snapshot "$SNAP_B"
+        START_FROM_PHASE="C"
+    else
+        echo "略過快照，繼續下一個選項…"
+    fi
 fi
 
-if [[ "$VM_EXISTS" == true ]]; then
-    echo "偵測到 VM「$VM_NAME」已存在。"
-    read -rp "要刪除後重建嗎？(y/N) " ans
-    if [[ ! "$ans" =~ ^[Yy]$ ]]; then
-        echo "取消。"
-        exit 0
+if [[ "$START_FROM_PHASE" != "C" ]] && snapshot_exists "$SNAP_A"; then
+    echo ""
+    echo "偵測到快照：$SNAP_A（基礎 Ubuntu）"
+    if ask_yn "從此快照還原，直接跑 Phase B+C？"; then
+        restore_snapshot "$SNAP_A"
+        START_FROM_PHASE="B"
     fi
 fi
 
 # =========================================================
 # Phase A: 建立 VM
 # =========================================================
+
+if [[ "$START_FROM_PHASE" == "A" ]]; then
+
+    # 檢查 VM 或 disk 殘留，確認是否重建
+    VM_EXISTS=false
+    sudo virsh dominfo "$VM_NAME" &>/dev/null && VM_EXISTS=true
+    [[ -f "$DISK_PATH" ]] && VM_EXISTS=true
+
+    if [[ "$VM_EXISTS" == true ]]; then
+        echo ""
+        echo "偵測到 VM「$VM_NAME」殘留（無可用快照）。"
+        if ! ask_yn "要刪除後從頭重建？"; then
+            echo "取消。"
+            exit 0
+        fi
+    fi
 
 echo "=== Phase A: 建立 VM ==="
 
@@ -234,9 +307,17 @@ echo "=== Phase A 完成 ==="
 echo "  VM: $VM_NAME / IP: $VM_IP / SSH: ssh $VM_USER@$VM_IP"
 echo ""
 
+if ask_yn "要建立還原點 1（基礎 Ubuntu，$SNAP_A）？"; then
+    create_snapshot "$SNAP_A" "Base Ubuntu 24.04 (post cloud-init)"
+fi
+
+fi  # end: if [[ "$START_FROM_PHASE" == "A" ]]
+
 # =========================================================
 # Phase B: 安裝桌面環境
 # =========================================================
+
+if [[ "$START_FROM_PHASE" != "C" ]]; then
 
 echo "=== Phase B: 安裝桌面環境 ==="
 
@@ -330,6 +411,12 @@ fi
 echo ""
 echo "=== Phase B 完成 ==="
 echo ""
+
+if ask_yn "要建立還原點 2（Ubuntu + 桌面，$SNAP_B）？"; then
+    create_snapshot "$SNAP_B" "Ubuntu 24.04 + GNOME Desktop (pre-array30)"
+fi
+
+fi  # end: if [[ "$START_FROM_PHASE" != "C" ]]
 
 # =========================================================
 # Phase C: 測試 array30-install.sh
