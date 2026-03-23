@@ -25,6 +25,7 @@ SCRIPT_VERSION="1.0.0"
 FCITX5_ARRAY_AUR="https://aur.archlinux.org/fcitx5-array.git"
 FCITX5_ARRAY_GITHUB="https://github.com/ray2501/fcitx5-array"
 ARRAY30_CIN_RAW="https://raw.githubusercontent.com/gontera/array30/master"
+IBUS_CIN_URL="$ARRAY30_CIN_RAW/OpenVanilla/array30-OpenVanilla-big-v2023-1.0-20230211.cin"
 
 # 系統路徑（Ubuntu multiarch）
 ARRAY_SO="/usr/lib/x86_64-linux-gnu/fcitx5/array.so"
@@ -637,7 +638,7 @@ do_install_ibus() {
     tmpdir=$(mktemp -d)
     trap 'rm -rf "$tmpdir"' RETURN
 
-    local cin_url="$ARRAY30_CIN_RAW/array30-OpenVanilla-big.cin"
+    local cin_url="$IBUS_CIN_URL"
     info "下載 array30.cin..."
     if ! curl -fL "$cin_url" -o "$tmpdir/array30.cin" 2>/dev/null; then
         err "下載字根表失敗，請確認網路連線"
