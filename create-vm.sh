@@ -3,6 +3,10 @@
 # 踩坑修正紀錄：見腳本底部 CHANGELOG
 set -euo pipefail
 
+# 非 TTY 環境（如 CI / Claude Code）自動啟用 AUTO_YES
+AUTO_YES=${AUTO_YES:-false}
+[[ ! -t 0 ]] && AUTO_YES=true
+
 # === 設定 ===
 VM_NAME="ubuntu-array30-install"
 VM_USER="array30"
@@ -107,6 +111,10 @@ SNAP_C="snap-phase-c"  # 行列30安裝完成（Phase C 完成後）
 
 ask_yn() {
     local prompt="$1"
+    if [[ "$AUTO_YES" == true ]]; then
+        echo "$prompt (y/N) y [AUTO]"
+        return 0
+    fi
     local ans
     read -rp "$prompt (y/N) " ans
     [[ "$ans" =~ ^[Yy]$ ]]
@@ -169,6 +177,12 @@ SSH_KEY=$(cat "$SSH_PUBKEY_FILE")
 
 # 快照感知啟動：偵測現有快照，顯示選單
 START_FROM_PHASE="A"
+
+# AUTO_YES 模式：直接從 Phase A 全新建立，跳過選單
+if [[ "$AUTO_YES" == true ]]; then
+    echo "[AUTO] 略過快照選單，從 Phase A 全新建立 VM"
+    HAS_SNAPS=false
+fi
 
 # 建立可用選項清單
 MENU_OPTIONS=()
