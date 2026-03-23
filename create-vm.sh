@@ -205,6 +205,16 @@ if [[ "$HAS_SNAPS" == true ]]; then
     MENU_NEXTS+=("")
 fi
 
+# 沒有任何快照：直接詢問是否全新建立
+if [[ "$HAS_SNAPS" == false ]]; then
+    echo ""
+    if ! ask_yn "未偵測到任何還原點，要全新建立 VM 嗎？"; then
+        echo "取消。"
+        exit 0
+    fi
+    START_FROM_PHASE="A"
+else
+
 echo ""
 echo "=== 請選擇起始點 ==="
 for i in "${!MENU_OPTIONS[@]}"; do
@@ -283,6 +293,8 @@ if [[ -n "$CHOSEN_SNAP" ]]; then
         exit 0
     fi
 fi
+
+fi  # end: if [[ "$HAS_SNAPS" == true ]]
 
 # =========================================================
 # Phase A: 建立 VM
