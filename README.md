@@ -2,7 +2,7 @@
 
 Ubuntu 24.04+ 專用的行列30全自動安裝工具。
 
-支援兩種引擎：原生 **fcitx5-array**（功能完整）與 **ibus-array**（輕量快速）。無需容器，一行指令搞定。
+支援兩種引擎：**fcitx5-array** 與 **ibus-array**。無需容器，一行指令搞定。
 
 ## 快速安裝
 
@@ -28,16 +28,16 @@ bash array30-install.sh install
 |------|:---:|:---:|
 | 安裝方式 | 從源碼編譯 | apt + cin 轉換 |
 | 安裝時間 | 約 5 分鐘 | 約 1 分鐘 |
-| W+數字符號輸入 | ✓ | ✗ |
+| 鍵碼表版本 | — | v2023-1.0（ibus-array 0.2.3） |
+| W+數字符號輸入 | ✓ | ✓ |
 | 一/二級簡碼 | ✓ | ✓ |
-| 萬用字元 (?/*) | ✓ | ✗ |
-| 詞組輸入 | ✓ | 有限 |
+| 萬用字元 | ✓ (?/\*) | ✓ (? 僅) |
+| 詞組輸入 | ✓ | ✓（官版六萬詞） |
 | 聯想字建議 | ✓ | ✗ |
 | 反查碼 Ctrl+Alt+E | ✓ | ✗ |
 | GNOME 原生整合 | 需額外設定 | 原生支援 |
-| 適合對象 | 進階用戶 | 輕量需求 |
 
-**建議：** 日常使用選 fcitx5-array；如只需基本輸入且在乎啟動速度，選 ibus-array。
+**建議：** 兩種引擎功能差異不大；GNOME 桌面環境選 ibus-array 最省事，有進階需求（聯想字、反查碼）則選 fcitx5-array。
 
 ## 指令
 
@@ -59,11 +59,16 @@ bash array30-install.sh install
 
 ## 字根表來源
 
-| 檔案 | 來源 |
+兩種引擎的輸入法資料均來自 [gontera/array30](https://github.com/gontera/array30)：
+
+| 資料 | 檔案 |
 |------|------|
-| 主字根表（`array30.conf`） | [gontera/array30](https://github.com/gontera/array30) — 官方行列30鍵碼表 |
-| 簡碼表（`array30_simplecode.cin`） | 同上倉庫 |
-| 詞組表（`array30_phrase.cin`） | [ray2501/fcitx5-array](https://github.com/ray2501/fcitx5-array) 內附 |
+| 主鍵碼表（v2023-1.0） | `OpenVanilla/array30-OpenVanilla-big-v2023-1.0-20230211.cin` |
+| 簡碼表 | `OpenVanilla/array-shortcode-20210725.cin` |
+| 詞組表（官版六萬詞） | `array30-phrase-20210725.txt` |
+
+兩種引擎皆以上述原始資料各自建立 SQLite 資料庫（`array.db`）。
+fcitx5-array 的架構與 SQLite 格式移植自 [lexical/ibus-array](https://github.com/lexical/ibus-array)。
 
 ## 授權
 
