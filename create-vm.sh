@@ -57,6 +57,7 @@ refresh_vm_ip() {
 try_ssh() {
     refresh_vm_ip
     if [[ -n "$VM_IP" ]]; then
+        # shellcheck disable=SC2029  # intentional: "$@" expands on client side to pass args to remote
         ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_IP" "$@" 2>/dev/null
         return $?
     fi
@@ -579,6 +580,7 @@ echo "[C2] 執行 array30-install.sh install（ARRAY30_ENGINE=$TEST_ENGINE）…
 echo "---------- 安裝輸出 ----------"
 
 set +e
+# shellcheck disable=SC2029  # intentional: $TEST_ENGINE expands locally so the value is passed to remote
 ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_IP" "ARRAY30_ENGINE=$TEST_ENGINE bash ~/array30-install.sh install" 2>&1 | tee /tmp/array30-install-result.log
 INSTALL_EXIT=${PIPESTATUS[0]}
 set -e
