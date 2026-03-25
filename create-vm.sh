@@ -19,7 +19,7 @@ CLOUD_IMG_URL="https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.
 CLOUD_IMG_CACHE="/home/deck/Downloads/ubuntu-24.04-server-cloudimg-amd64.img"
 USERDATA_PATH="/tmp/${VM_NAME}-user-data.yaml"
 SSH_PUBKEY_FILE="$HOME/.ssh/id_ed25519.pub"
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o ServerAliveInterval=30 -o LogLevel=ERROR"
+SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o ServerAliveInterval=30 -o LogLevel=ERROR)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # === 全域變數 ===
@@ -57,7 +57,7 @@ refresh_vm_ip() {
 try_ssh() {
     refresh_vm_ip
     if [[ -n "$VM_IP" ]]; then
-        ssh $SSH_OPTS "$VM_USER@$VM_IP" "$@" 2>/dev/null
+        ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_IP" "$@" 2>/dev/null
         return $?
     fi
     return 1
@@ -86,7 +86,7 @@ wait_for_ssh() {
         # 刷新 IP + 嘗試 SSH
         refresh_vm_ip
         if [[ -n "$VM_IP" ]]; then
-            if ssh $SSH_OPTS "$VM_USER@$VM_IP" "echo ok" &>/dev/null; then
+            if ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_IP" "echo ok" &>/dev/null; then
                 echo "  [${elapsed}s] SSH 連線成功（$VM_IP）"
                 return 0
             fi
@@ -476,7 +476,7 @@ try_ssh "sudo apt-get update -qq" 2>&1 | tail -3 || true
 
 echo "[B4] install ubuntu-desktop-minimal（約 10-15 分鐘）…"
 set +e
-ssh $SSH_OPTS "$VM_USER@$VM_IP" \
+ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_IP" \
     "sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get install -y ubuntu-desktop-minimal" 2>&1 \
     | while IFS= read -r line; do
         case "$line" in
@@ -573,13 +573,13 @@ fi
 echo ""
 
 echo "[C1] 複製 array30-install.sh 到 VM…"
-scp $SSH_OPTS "$SCRIPT_DIR/array30-install.sh" "$VM_USER@$VM_IP:~/"
+scp "${SSH_OPTS[@]}" "$SCRIPT_DIR/array30-install.sh" "$VM_USER@$VM_IP:~/"
 
 echo "[C2] 執行 array30-install.sh install（ARRAY30_ENGINE=$TEST_ENGINE）…"
 echo "---------- 安裝輸出 ----------"
 
 set +e
-ssh $SSH_OPTS "$VM_USER@$VM_IP" "ARRAY30_ENGINE=$TEST_ENGINE bash ~/array30-install.sh install" 2>&1 | tee /tmp/array30-install-result.log
+ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_IP" "ARRAY30_ENGINE=$TEST_ENGINE bash ~/array30-install.sh install" 2>&1 | tee /tmp/array30-install-result.log
 INSTALL_EXIT=${PIPESTATUS[0]}
 set -e
 
@@ -590,7 +590,7 @@ if [[ $INSTALL_EXIT -eq 0 ]]; then
     echo "[C3] 執行 array30-install.sh diagnose…"
     echo "---------- 診斷輸出 ----------"
     set +e
-    ssh $SSH_OPTS "$VM_USER@$VM_IP" "bash ~/array30-install.sh diagnose" 2>&1 | tee /tmp/array30-diagnose-result.log
+    ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_IP" "bash ~/array30-install.sh diagnose" 2>&1 | tee /tmp/array30-diagnose-result.log
     set -e
     echo "---------- 診斷結束 ----------"
 else
