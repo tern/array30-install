@@ -318,7 +318,7 @@ fetch_source() {
         warn "PKGBUILD 解析失敗，使用 fallback: $FCITX5_ARRAY_GITHUB"
         info "從 GitHub clone fcitx5-array..."
         if git clone --depth 1 "$FCITX5_ARRAY_GITHUB" "$build_dir/fcitx5-array-src"; then
-            src_version=$(cd "$build_dir/fcitx5-array-src" && git describe --tags 2>/dev/null || git rev-parse --short HEAD)
+            src_version=$(cd "$build_dir/fcitx5-array-src" && (git describe --tags 2>/dev/null || git rev-parse --short HEAD))
             ok "原始碼取得成功 (git: $src_version)"
             echo "$src_version" > "$build_dir/source-version.txt"
             return 0
@@ -337,7 +337,7 @@ fetch_source() {
         if ! curl -fL "$src_url" -o "$tarball" 2>/dev/null; then
             warn "tarball 下載失敗，嘗試 git clone fallback..."
             if git clone --depth 1 "$FCITX5_ARRAY_GITHUB" "$build_dir/fcitx5-array-src"; then
-                src_version=$(cd "$build_dir/fcitx5-array-src" && git describe --tags 2>/dev/null || git rev-parse --short HEAD)
+                src_version=$(cd "$build_dir/fcitx5-array-src" && (git describe --tags 2>/dev/null || git rev-parse --short HEAD))
                 ok "原始碼取得成功 (git fallback: $src_version)"
                 echo "$src_version" > "$build_dir/source-version.txt"
                 return 0
