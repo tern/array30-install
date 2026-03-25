@@ -1272,8 +1272,8 @@ do_restore() {
 # ── 主程式 ────────────────────────────────────────────────────────────────
 
 show_help() {
-    cat << 'EOF'
-行列30輸入法安裝工具 (fcitx5-array) — Ubuntu 24.04+ 專用
+    cat << EOF
+行列30輸入法安裝工具 (fcitx5-array) v${SCRIPT_VERSION} — Ubuntu 24.04+ 專用
 
 用法: ./array30-install.sh <command>
 
@@ -1307,7 +1307,7 @@ Commands:
   table-based array30:
     - 基本行列輸入，不支援上述進階功能
 
-Version: v1.0.0
+Version: v${SCRIPT_VERSION}
 License: GPL-2.0-or-later
 EOF
 }
