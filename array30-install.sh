@@ -1058,7 +1058,7 @@ do_diagnose() {
         missing=$(ldd "$ARRAY_SO" 2>&1 | grep "not found" || true)
         if [[ -n "$missing" ]]; then
             echo -e "  ${RED}[FAIL]${NC} 有缺失的動態連結庫:"
-            echo "$missing" | sed 's/^/    /'
+            while IFS= read -r line; do echo "    $line"; done <<< "$missing"
         else
             echo -e "  ${GREEN}[OK]${NC}   所有動態連結庫都已找到"
         fi
