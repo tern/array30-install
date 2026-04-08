@@ -28,7 +28,7 @@ bash array30-install.sh install
 |------|:---:|:---:|
 | 安裝方式 | 從源碼編譯 | apt + cin 轉換 |
 | 安裝時間 | 約 5 分鐘 | 約 1 分鐘 |
-| 鍵碼表版本 | — | v2023-1.0（ibus-array 0.2.3） |
+| 鍵碼表版本 | — | v2026-1.02（ibus-array 0.2.3） |
 | W+數字符號輸入 | ✓ | ✓ |
 | 一/二級簡碼 | ✓ | ✓ |
 | 萬用字元 | ✓ (?/\*) | ✓ (? 僅) |
@@ -83,7 +83,7 @@ GLFW_IM_MODULE=ibus
 
 | 資料 | 檔案 |
 |------|------|
-| 主鍵碼表（v2023-1.0） | `OpenVanilla/array30-OpenVanilla-big-v2023-1.0-20230211.cin` |
+| 主鍵碼表（v2026-1.02） | `OpenVanilla/array30-OpenVanilla-big-v2026-1.02-20260407.cin` |
 | 簡碼表 | `OpenVanilla/array-shortcode-20210725.cin` |
 | 詞組表（官版六萬詞） | `array30-phrase-20210725.txt` |
 

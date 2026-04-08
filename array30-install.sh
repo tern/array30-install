@@ -25,7 +25,10 @@ SCRIPT_VERSION="1.0.0"
 FCITX5_ARRAY_AUR="https://aur.archlinux.org/fcitx5-array.git"
 FCITX5_ARRAY_GITHUB="https://github.com/ray2501/fcitx5-array"
 ARRAY30_CIN_RAW="https://raw.githubusercontent.com/gontera/array30/master"
-IBUS_CIN_URL="$ARRAY30_CIN_RAW/OpenVanilla/array30-OpenVanilla-big-v2023-1.0-20230211.cin"
+ARRAY30_MAIN_CIN_PATH="OpenVanilla/array30-OpenVanilla-big-v2026-1.02-20260407.cin"
+ARRAY30_SHORTCODE_CIN_PATH="OpenVanilla/array-shortcode-20210725.cin"
+ARRAY30_PHRASE_PATH="array30-phrase-20210725.txt"
+IBUS_CIN_URL="$ARRAY30_CIN_RAW/$ARRAY30_MAIN_CIN_PATH"
 
 # 系統路徑（Ubuntu multiarch）
 ARRAY_SO="/usr/lib/x86_64-linux-gnu/fcitx5/array.so"
@@ -781,24 +784,24 @@ do_update_table() {
     trap "rm -rf '$tmpdir'" RETURN
 
     info "下載最新字根表..."
-    if ! curl -fL "$ARRAY30_CIN_RAW/array30-OpenVanilla-big.cin" -o "$tmpdir/array30.cin" 2>/dev/null; then
+    if ! curl -fL "$ARRAY30_CIN_RAW/$ARRAY30_MAIN_CIN_PATH" -o "$tmpdir/array30.cin" 2>/dev/null; then
         err "下載字根表失敗"
         exit 1
     fi
-    ok "已下載 array30-OpenVanilla-big.cin"
+    ok "已下載 ${ARRAY30_MAIN_CIN_PATH##*/}"
 
     info "下載簡碼表..."
-    if ! curl -fL "$ARRAY30_CIN_RAW/array30_simplecode.cin" -o "$tmpdir/simplecode.cin" 2>/dev/null; then
+    if ! curl -fL "$ARRAY30_CIN_RAW/$ARRAY30_SHORTCODE_CIN_PATH" -o "$tmpdir/simplecode.cin" 2>/dev/null; then
         warn "下載簡碼表失敗，跳過簡碼更新"
     else
-        ok "已下載 array30_simplecode.cin"
+        ok "已下載 ${ARRAY30_SHORTCODE_CIN_PATH##*/}"
     fi
 
     info "下載詞組表..."
-    if ! curl -fL "${FCITX5_ARRAY_GITHUB}/raw/master/data/array30-phrase-20210725.txt" -o "$tmpdir/phrase.txt" 2>/dev/null; then
+    if ! curl -fL "$ARRAY30_CIN_RAW/$ARRAY30_PHRASE_PATH" -o "$tmpdir/phrase.txt" 2>/dev/null; then
         warn "下載詞組表失敗，跳過詞組更新"
     else
-        ok "已下載 array30-phrase.txt"
+        ok "已下載 ${ARRAY30_PHRASE_PATH##*/}"
     fi
 
     # 備份
