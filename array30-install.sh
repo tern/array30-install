@@ -19,7 +19,7 @@
 set -euo pipefail
 
 # ── 常數 ──────────────────────────────────────────────────────────────────
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.1.0"
 
 # 上游來源
 FCITX5_ARRAY_AUR="https://aur.archlinux.org/fcitx5-array.git"
