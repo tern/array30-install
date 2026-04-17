@@ -1,8 +1,12 @@
-# array30-install
+# array30-install (v1.1.0)
 
 Ubuntu 24.04+ 專用的行列30全自動安裝工具。
 
 支援兩種引擎：**fcitx5-array** 與 **ibus-array**。無需容器，一行指令搞定。
+
+## 更新日誌 (v1.1.0)
+- **支援 ARM64 (Apple Silicon)**：支援在 Apple M1/M2/M3 等 ARM 系統的 Ubuntu 24.04 虛擬機上自動安裝。
+- **動態多架構支援**：自動偵測系統架構（x86_64 / aarch64）並調整安裝路徑。
 
 ## 快速安裝
 
@@ -52,7 +56,7 @@ bash array30-install.sh install
 
 ## 系統需求
 
-- Ubuntu 24.04+ LTS（x86_64）
+- Ubuntu 24.04+ LTS (**x86_64** 或 **aarch64/ARM64**)
 - 網路連線（下載套件和原始碼）
 - fcitx5-array：約 1.5GB 磁碟空間（編譯暫存）
 - ibus-array：約 100MB 磁碟空間
