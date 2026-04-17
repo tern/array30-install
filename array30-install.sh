@@ -31,8 +31,9 @@ ARRAY30_PHRASE_PATH="array30-phrase-20210725.txt"
 IBUS_CIN_URL="$ARRAY30_CIN_RAW/$ARRAY30_MAIN_CIN_PATH"
 
 # 系統路徑（Ubuntu multiarch）
-ARRAY_SO="/usr/lib/x86_64-linux-gnu/fcitx5/array.so"
-ASSOC_SO="/usr/lib/x86_64-linux-gnu/fcitx5/libassociation.so"
+MULTIARCH=$(gcc -print-multiarch 2>/dev/null || echo "x86_64-linux-gnu")
+ARRAY_SO="/usr/lib/$MULTIARCH/fcitx5/array.so"
+ASSOC_SO="/usr/lib/$MULTIARCH/fcitx5/libassociation.so"
 ARRAY_DB="/usr/share/fcitx5/array/array.db"
 BACKUP_DIR="$HOME/.local/share/array30-backup"
 FCITX5_PROFILE="$HOME/.config/fcitx5/profile"
@@ -80,11 +81,11 @@ need_sudo() {
 # ── 環境檢查 ──────────────────────────────────────────────────────────────
 
 check_ubuntu() {
-    # 檢查 x86_64
+    # 檢查架構 (x86_64 或 aarch64)
     local arch
     arch=$(uname -m)
-    if [[ "$arch" != "x86_64" ]]; then
-        err "此工具僅支援 x86_64 架構（偵測到: $arch）"
+    if [[ "$arch" != "x86_64" && "$arch" != "aarch64" ]]; then
+        err "此工具僅支援 x86_64 或 aarch64 架構（偵測到: $arch）"
         exit 1
     fi
 
@@ -1071,7 +1072,7 @@ do_diagnose() {
         so_fmt_ver=$(nm -D "$ARRAY_SO" 2>/dev/null | grep -oP 'fmt::v\K[0-9]+' | head -1 || true)
         # Ubuntu multiarch 路徑
         local fmt_lib
-        fmt_lib=$(find /usr/lib/x86_64-linux-gnu -name 'libfmt.so*' -type f 2>/dev/null | head -1 || true)
+        fmt_lib=$(find /usr/lib/$MULTIARCH -name 'libfmt.so*' -type f 2>/dev/null | head -1 || true)
         if [[ -n "$fmt_lib" ]]; then
             host_fmt_ver=$(nm -D "$fmt_lib" 2>/dev/null | grep -oP 'fmt::v\K[0-9]+' | head -1 || true)
         fi
