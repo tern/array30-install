@@ -19,7 +19,7 @@
 set -euo pipefail
 
 # ── 常數 ──────────────────────────────────────────────────────────────────
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.1.1"
 
 # 上游來源
 FCITX5_ARRAY_AUR="https://aur.archlinux.org/fcitx5-array.git"
@@ -95,14 +95,20 @@ check_ubuntu() {
         exit 1
     fi
 
-    local id version_id
+    local id id_like version_id
     id=$(grep -oP '^ID=\K.*' /etc/os-release | tr -d '"')
+    id_like=$(grep -oP '^ID_LIKE=\K.*' /etc/os-release 2>/dev/null | tr -d '"' || true)
     version_id=$(grep -oP '^VERSION_ID=\K.*' /etc/os-release | tr -d '"')
 
-    if [[ "$id" != "ubuntu" ]]; then
-        err "此工具僅支援 Ubuntu（偵測到: $id）"
-        exit 1
-    fi
+    case "$id" in
+        ubuntu|pop) ;;
+        *)
+            if ! echo "$id_like" | grep -q 'ubuntu'; then
+                err "此工具僅支援 Ubuntu 及相容發行版（偵測到: $id）"
+                exit 1
+            fi
+            ;;
+    esac
 
     # 比較版本：24.04+
     local major minor
@@ -113,7 +119,9 @@ check_ubuntu() {
         exit 1
     fi
 
-    ok "Ubuntu $version_id (x86_64)"
+    local pretty
+    pretty=$(grep -oP '^PRETTY_NAME=\K.*' /etc/os-release 2>/dev/null | tr -d '"' || echo "$id $version_id")
+    ok "$pretty ($arch)"
 }
 
 check_network() {
@@ -1006,8 +1014,26 @@ do_diagnose() {
         echo "  $p: ${v:-未安裝}"
     done
     local fmt_v
-    fmt_v=$(dpkg -l 'libfmt*' 2>/dev/null | awk '/^ii[[:space:]]+libfmt[0-9]/{print $2" "$3}' | head -1)
+    fmt_v=$(dpkg -l 'libfmt*' 2>/dev/null | awk '/^ii[[:space:]]+libfmt[0-9]/{print $2" "$3}' | head -1 || true)
     echo "  libfmt: ${fmt_v:-未安裝}"
+
+    if command -v apt-get &>/dev/null; then
+        local apt_out apt_rc=0
+        apt_out=$(apt-get check 2>&1) || apt_rc=$?
+        if [[ "$apt_rc" -ne 0 ]]; then
+            if echo "$apt_out" | grep -qi 'lock\|permission\|are you root'; then
+                echo -e "  apt 狀態: ${BLUE}[SKIP]${NC} 需 root 權限才能檢查（執行 sudo apt-get check）"
+            else
+                echo -e "  apt 狀態: ${RED}[FAIL]${NC} 相依關係損壞"
+                if dpkg -l fcitx5-modules 2>/dev/null | awk '/^ii/{print $3}' | grep -q '^5\.1\.12'; then
+                    echo -e "  ${YELLOW}提示${NC}  偵測到手動升級的 fcitx5 5.1.12，請先執行："
+                    echo "         sudo bash fix-apt-deps.sh"
+                fi
+            fi
+        else
+            echo -e "  apt 狀態: ${GREEN}[OK]${NC}"
+        fi
+    fi
 
     # im-config 檢查
     if command -v im-config &>/dev/null; then
@@ -1020,7 +1046,15 @@ do_diagnose() {
         fi
     fi
 
-    echo -e "  fcitx5-array (手動): $([ -f "$ARRAY_SO" ] && echo "${GREEN}已安裝${NC}" || echo "${RED}未安裝${NC}")"
+    local user_array_so="$HOME/.local/lib/fcitx5/array.so"
+    local user_array_db="$HOME/.local/share/fcitx5/array/array.db"
+    if [[ -f "$ARRAY_SO" ]]; then
+        echo -e "  fcitx5-array (系統): ${GREEN}已安裝${NC}"
+    elif [[ -f "$user_array_so" ]]; then
+        echo -e "  fcitx5-array (系統): ${YELLOW}未安裝${NC}（僅 ~/.local 有編譯產物，需 sudo 安裝）"
+    else
+        echo -e "  fcitx5-array (系統): ${RED}未安裝${NC}"
+    fi
     if [[ -f "$VERSION_FILE" ]]; then
         echo "  安裝版本: $(cat "$VERSION_FILE")"
     fi
@@ -1034,6 +1068,10 @@ do_diagnose() {
         "$ASSOC_SO"
         "/usr/share/fcitx5/addon/array.conf"
         "/usr/share/fcitx5/inputmethod/array.conf"
+        "$user_array_so"
+        "$user_array_db"
+        "$HOME/.local/share/fcitx5/addon/array.conf"
+        "$HOME/.local/share/fcitx5/inputmethod/array.conf"
     )
     for f in "${files[@]}"; do
         if [[ -f "$f" ]]; then
@@ -1119,6 +1157,24 @@ do_diagnose() {
         echo -e "  ${GREEN}[OK]${NC}   fcitx5 正在執行"
     else
         echo -e "  ${YELLOW}[WARN]${NC} fcitx5 未執行"
+    fi
+    echo ""
+
+    # 6b. Addon 載入測試
+    echo "【Addon 載入測試】"
+    if [[ ! -f "$ARRAY_SO" ]]; then
+        echo -e "  ${YELLOW}[SKIP]${NC} array.so 未安裝到系統（見 install-built.sh）"
+    elif ! pgrep -x fcitx5 &>/dev/null; then
+        echo -e "  ${YELLOW}[SKIP]${NC} fcitx5 未執行"
+    else
+        local current_im
+        current_im=$(fcitx5-remote -n 2>/dev/null || true)
+        if fcitx5-remote -s array 2>/dev/null && [[ "$(fcitx5-remote -n 2>/dev/null)" == "array" ]]; then
+            echo -e "  ${GREEN}[OK]${NC}   可切換至 array 輸入法"
+        else
+            echo -e "  ${RED}[FAIL]${NC} 無法切換至 array（目前: ${current_im:-未知}）"
+            echo "  提示: bash install-built.sh 或 fcitx5-remote -s array"
+        fi
     fi
     echo ""
 
@@ -1298,6 +1354,12 @@ Commands:
   restore        從備份還原
 
   help           顯示此說明
+
+輔助腳本:
+  fix-apt-deps.sh    修復 Pop!_OS 上 fcitx5 5.1.12 / libxcb apt 損壞
+  install-built.sh   將 ~/.local 編譯產物安裝到系統
+
+詳細紀錄: docs/POP-OS.md
 
 行列30 vs table-based array30:
   原生 fcitx5-array 支援：

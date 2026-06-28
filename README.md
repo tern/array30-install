@@ -1,17 +1,26 @@
-# array30-install (v1.1.0)
+# array30-install (v1.1.1)
 
-Ubuntu 24.04+ 專用的行列30全自動安裝工具。
+Ubuntu 24.04+ 及相容發行版（含 **Pop!_OS 24.04**）專用的行列30全自動安裝工具。
 
 支援兩種引擎：**fcitx5-array** 與 **ibus-array**。無需容器，一行指令搞定。
 
-## 更新日誌 (v1.1.0)
+## 更新日誌
+
+### v1.1.1
+- **Pop!_OS 24.04 支援**：接受 `ID=pop` 及 Ubuntu 相容發行版。
+- **新增 `fix-apt-deps.sh`**：修復手動升級 fcitx5 5.1.12 後與 Pop!_OS 內建 `libxcb-*` 版本不相容的 apt 損壞。
+- **新增 `install-built.sh`**：將已編譯的 `~/.local` 產物快速安裝到系統路徑。
+- **修復 `diagnose`**：`libfmt` 未安裝時不再中途退出；區分 apt 需 root 與真的損壞。
+- **Pop!_OS 安裝紀錄**：見 [docs/POP-OS.md](docs/POP-OS.md)。
+
+### v1.1.0
 - **支援 ARM64 (Apple Silicon)**：支援在 Apple M1/M2/M3 等 ARM 系統的 Ubuntu 24.04 虛擬機上自動安裝。
 - **動態多架構支援**：自動偵測系統架構（x86_64 / aarch64）並調整安裝路徑。
 
 ## 快速安裝
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tern/array30-install/main/array30-install.sh | bash -s -- install
+curl -fsSL https://raw.githubusercontent.com/tern/array30-install/master/array30-install.sh | bash -s -- install
 ```
 
 或 clone 後執行：
@@ -22,9 +31,30 @@ cd array30-install
 bash array30-install.sh install
 ```
 
+指定引擎（略過選單）：
+
+```bash
+ARRAY30_ENGINE=fcitx5 bash array30-install.sh install
+```
+
 執行後會出現引擎選擇選單，依需求選擇即可。
 
-> **注意：** 不要用 `sudo bash` 執行。腳本內部會在需要時自行呼叫 `sudo`。
+> **注意：** 不要用 `sudo bash array30-install.sh` 執行。腳本內部會在需要時自行呼叫 `sudo`。
+
+## 輔助腳本
+
+| 腳本 | 說明 |
+|------|------|
+| [`fix-apt-deps.sh`](fix-apt-deps.sh) | 修復 Pop!_OS 上 fcitx5 5.1.12 與 libxcb 相依損壞，並安裝 `libfmt9` |
+| [`install-built.sh`](install-built.sh) | 將 `~/.local` 內已編譯的 fcitx5-array 安裝到 `/usr`（自動偵測並呼叫 fix-apt-deps） |
+| [`install-chewing.sh`](install-chewing.sh) | 安裝 fcitx5 新酷音（注音輸入法）並加入 profile |
+
+典型情境（已編譯、apt 曾損壞）：
+
+```bash
+sudo bash fix-apt-deps.sh
+bash install-built.sh
+```
 
 ## 引擎比較
 
@@ -41,7 +71,7 @@ bash array30-install.sh install
 | 反查碼 Ctrl+Alt+E | ✓ | ✗ |
 | GNOME 原生整合 | 需額外設定 | 原生支援 |
 
-**建議：** 兩種引擎功能差異不大；GNOME 桌面環境選 ibus-array 最省事，有進階需求（聯想字、反查碼）則選 fcitx5-array。
+**建議：** GNOME 桌面選 ibus-array 最省事；要聯想字、反查碼或已在用 fcitx5 則選 fcitx5-array。
 
 ## 指令
 
@@ -50,36 +80,77 @@ bash array30-install.sh install
 | `install` | 全自動安裝（選擇引擎 → 環境偵測 → 編譯/安裝） |
 | `uninstall` | 移除已安裝的引擎 |
 | `update-table` | 線上更新字根表（主表 + 簡碼 + 詞組） |
-| `diagnose` | 完整健康檢查（系統/套件/ABI/字表/Profile） |
+| `diagnose` | 完整健康檢查（系統/套件/ABI/字表/Profile/載入測試） |
 | `backup` | 手動備份 |
 | `restore` | 從備份還原 |
 
 ## 系統需求
 
-- Ubuntu 24.04+ LTS (**x86_64** 或 **aarch64/ARM64**)
+- Ubuntu 24.04+ LTS 或相容發行版（**Ubuntu / Pop!_OS / Debian-based**）
+- 架構：**x86_64** 或 **aarch64/ARM64**
 - 網路連線（下載套件和原始碼）
 - fcitx5-array：約 1.5GB 磁碟空間（編譯暫存）
 - ibus-array：約 100MB 磁碟空間
 
 ## 疑難排解
 
+### Pop!_OS：apt 相依關係損壞
+
+若曾手動 `dpkg -i --force-depends` 升級 fcitx5 5.1.12，可能出現：
+
+```
+fcitx5-modules : 相依關係: libxcb-ewmh2 (>= 0.4.2) 但 0.4.1 卻將被安裝
+```
+
+```bash
+sudo bash fix-apt-deps.sh
+bash install-built.sh
+```
+
+詳細過程見 **[docs/POP-OS.md](docs/POP-OS.md)**。
+
+### `diagnose` 輸出不完整
+
+v1.1.1 已修復。請更新後重試：
+
+```bash
+bash array30-install.sh diagnose
+```
+
+### 安裝後無法切換到行列30
+
+1. 確認系統路徑有安裝（非僅 `~/.local`）：
+
+   ```bash
+   ls /usr/lib/x86_64-linux-gnu/fcitx5/array.so
+   ```
+
+2. 手動切換並檢查：
+
+   ```bash
+   fcitx5-remote -s array
+   fcitx5-remote -n    # 應為 array
+   ```
+
+3. Profile 需含 `Name=array`；可用 `install-built.sh` 重設。
+
 ### 安裝後無法叫出 Fcitx5 輸入法
 
-安裝腳本會自動將以下環境變數寫入 `/etc/environment`（已存在的項目不會重複寫入），**重開機**後生效：
+安裝腳本會自動將以下環境變數寫入 `/etc/environment`（已存在的項目不會重複寫入），**重開機或登出再登入**後生效：
 
 ```ini
-# GTK 程式（若在 GNOME Wayland 環境下跑純 Wayland 程式，可省略）
 GTK_IM_MODULE=fcitx
-
 QT_IM_MODULE=fcitx
-
-# 以下三條適用於 X11；使用 Wayland 桌面通常不需要設定
 XMODIFIERS=@im=fcitx
 SDL_IM_MODULE=fcitx
 GLFW_IM_MODULE=ibus
 ```
 
-若安裝後仍無法使用，可手動確認 `/etc/environment` 是否包含上述內容。
+Pop!_OS COSMIC 使用者亦可確認 `~/.pam_environment` 含 `fcitx5` 模組設定。
+
+### COSMIC 原生應用無法輸入中文
+
+原生 COSMIC 視窗 IME 支援仍有限。請在 Firefox、Chrome、VS Code、LibreOffice 等應用中使用行列30。
 
 ## 字根表來源
 
